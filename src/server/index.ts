@@ -71,6 +71,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Knex } from './db.js';
+import apiRouter from './routes/index.js';
 
 // ── __dirname shim ────────────────────────────────────────────────────────────
 // ES modules (files with "type": "module" in package.json) do not have the
@@ -253,10 +254,10 @@ export function createServer(config: ServerConfig): Express {
     res.json(req.body);
   });
 
-  // TODO: mount feature routers once they exist, e.g.:
-  //   import router from './routes/index.js';
-  //   app.use('/api', router);
-  // This will make every route in routes/index.ts available under /api.
+  // Mount all feature routers under /api.
+  // Routes registered in src/server/routes/index.ts (e.g. POST /query)
+  // become reachable as /api/query, /api/tables, etc.
+  app.use('/api', apiRouter);
 
   // ── Step 6: static files ────────────────────────────────────────────────────
   // express.static() serves files from a directory.

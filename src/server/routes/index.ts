@@ -38,12 +38,15 @@
  */
 
 import { Router } from 'express';
+import queryRouter from './query.js';
 
 // Create the root router that server/index.ts will mount under /api.
 // All routes registered below will be prefixed with /api automatically.
 const router = Router();
 
-// TODO: import and mount feature routers here as they are built out.
-// See the "How to add a new route group" section above for step-by-step instructions.
+// POST /api/query — ad-hoc SQL execution with permission enforcement.
+// The queryRouter handles POST / internally; mounting it at '/query' means
+// its handler is reachable at POST /api/query end-to-end.
+router.use('/query', queryRouter);
 
 export default router;
