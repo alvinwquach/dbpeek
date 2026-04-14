@@ -1,0 +1,55 @@
+{
+  /**
+   * src/client/tsconfig.json
+   *
+   * TypeScript configuration for the React frontend only.
+   *
+   * WHY a separate tsconfig?
+   *   The root tsconfig.json targets Node.js (moduleResolution: NodeNext, no JSX).
+   *   The React frontend runs in the browser and is compiled by Vite (not tsc),
+   *   so it needs different settings: JSX support, bundler module resolution,
+   *   and DOM type definitions.
+   *
+   * This file extends the root config to inherit strict mode and other shared
+   * settings, then overrides the browser-specific options.
+   */
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    /* Enable JSX — "react-jsx" uses the new automatic JSX transform (React 17+)
+       which means we don't have to write `import React from 'react'` at the top
+       of every file, though we still do so for clarity. */
+    "jsx": "react-jsx",
+
+    /* Bundler resolution lets us import without file extensions, which is how
+       Vite and all modern bundlers expect imports to be written.
+       NodeNext (the root setting) is for Node.js ESM where extensions are required. */
+    "moduleResolution": "bundler",
+
+    /* Override the module format. ESNext lets TypeScript preserve ES module syntax
+       so Vite can tree-shake and bundle it. */
+    "module": "ESNext",
+    "target": "ES2020",
+
+    /* Browser globals: window, document, fetch, etc. */
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+
+    /* Don't emit — Vite handles compilation and output. */
+    "noEmit": true,
+
+    /* Allow default imports from CommonJS modules (e.g. import React from 'react').
+       Required for some older packages that only export CommonJS. */
+    "esModuleInterop": true,
+
+    /* Ensure consistent casing in file imports (important on case-insensitive
+       filesystems like macOS so the build works the same on Linux CI). */
+    "forceConsistentCasingInFileNames": true,
+
+    /* Path alias — mirrors the Vite resolve.alias above so TypeScript resolves
+       '@/components/ui/button' to src/client/components/ui/button.tsx. */
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["./**/*"],
+  "exclude": []
+}
