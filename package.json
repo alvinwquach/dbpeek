@@ -2,6 +2,9 @@
   "name": "dbpeek",
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
   "bin": {
     "dbpeek": "dist/cli/index.js"
   },
