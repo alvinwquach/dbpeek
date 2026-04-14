@@ -13,7 +13,7 @@
  * store from ./stores/app.
  */
 
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -23,7 +23,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { StatusBar } from './components/StatusBar';
+import { SqlEditor } from './components/Editor/SqlEditor';
+import { DataGrid } from './components/Results/DataGrid';
 import { useAppStore } from './stores/app';
+import { useQuery } from './hooks/useQuery';
+import type { QueryResult } from './hooks/useQuery';
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
@@ -51,30 +55,14 @@ function Sidebar() {
 
 // ── EditorPane ────────────────────────────────────────────────────────────────
 
-function EditorPane() {
-  // PSEUDOCODE:
-  // 1. Read the full tab list so we can render the tab strip.
-  // 2. Read activeTabIndex so we know which tab to underline and which SQL to show.
-  // 3. Read the updateTabSql action so the textarea can write back on every keystroke.
-  // 4. Derive activeTab from the two values above — it's the tab currently being edited.
-  // 5. Render a tab strip: one button per tab, active tab gets an accent underline.
-  // 6. Render a textarea bound to activeTab.sql.
-
-  // Pull the full tab list from the store. Every time a tab is added or its
-  // SQL changes, this component re-renders with the latest array.
+function EditorPane({ onRun }: { onRun: (sql: string) => void }) {
+  // Pull the full tab list from the store — needed to render the tab strip.
   const tabs = useAppStore((s) => s.tabs);
 
-  // The index (not the id) of the currently focused tab. Using an index rather
-  // than an id keeps the "which tab is active" logic simple — no map lookups.
+  // The index (not the id) of the currently focused tab.
   const activeTabIndex = useAppStore((s) => s.activeTabIndex);
 
-  // The action that writes new SQL into a tab. We use the action from the store
-  // rather than local state so every keystroke is persisted globally — if the
-  // user switches tabs and comes back, their SQL is still there.
-  const updateTabSql = useAppStore((s) => s.updateTabSql);
-
-  // Derive the active tab object from the index. Optional chaining (?.) guards
-  // against the brief moment during tab creation where the index could be stale.
+  // Derive the active tab object from the index.
   const activeTab = tabs[activeTabIndex];
 
   return (
@@ -87,8 +75,6 @@ function EditorPane() {
             onClick={() => useAppStore.getState().setActiveTab(index)}
             className={[
               'px-4 py-1.5 text-xs border-r border-border whitespace-nowrap cursor-pointer transition-colors',
-              // Active tab: solid background + 2px accent underline so it
-              // visually "lifts" out of the surface-coloured tab bar.
               index === activeTabIndex
                 ? 'bg-base text-primary border-b-2 border-b-accent'
                 : 'bg-transparent text-muted border-b-2 border-b-transparent hover:text-primary',
@@ -98,18 +84,8 @@ function EditorPane() {
           </button>
         ))}
 
-        {/*
-          TooltipProvider must wrap any usage of Tooltip — it manages the shared
-          delay timer so multiple tooltips on the same page don't each have their
-          own independent timers.
-        */}
         <TooltipProvider>
           <Tooltip>
-            {/*
-              TooltipTrigger wraps the element that triggers the tooltip on hover.
-              Base UI's Trigger renders its own focusable element, so we style it
-              directly rather than using asChild (which is a Radix-only pattern).
-            */}
             <TooltipTrigger
               onClick={() => useAppStore.getState().addTab()}
               className="px-3 py-1.5 text-sm bg-transparent text-muted cursor-pointer hover:text-primary transition-colors"
@@ -121,18 +97,15 @@ function EditorPane() {
         </TooltipProvider>
       </div>
 
-      {/* SQL textarea — font-mono applies JetBrains Mono via the @theme token */}
-      <textarea
-        value={activeTab?.sql ?? ''}
-        onChange={(e) => {
-          // Write the new SQL into the store on every keystroke. The store
-          // maps over all tabs and replaces only the matching tab's sql field,
-          // leaving the other tabs untouched.
-          if (activeTab) updateTabSql(activeTab.id, e.target.value);
-        }}
-        placeholder="-- Write your SQL here…"
-        spellCheck={false}
-        className="flex-1 resize-none border-none outline-none bg-base text-primary font-mono text-[13px] leading-relaxed px-4 py-3 overflow-y-auto placeholder:text-muted"
+      {/*
+        key={activeTab?.id} remounts SqlEditor when the active tab changes,
+        initialising CodeMirror with the new tab's SQL. The editor owns its
+        content between remounts — no per-keystroke React state updates.
+      */}
+      <SqlEditor
+        key={activeTab?.id}
+        initialValue={activeTab?.sql ?? ''}
+        onRun={onRun}
       />
     </div>
   );
@@ -140,19 +113,16 @@ function EditorPane() {
 
 // ── ResultsPane ───────────────────────────────────────────────────────────────
 
-function ResultsPane() {
-  return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-4 py-1.5 border-b border-border text-[11px] font-semibold uppercase tracking-widest text-muted bg-surface shrink-0">
-        Results
-      </div>
-      <ScrollArea className="flex-1">
-        <div className="px-4 py-3 text-sm text-muted">
-          Results
-        </div>
-      </ScrollArea>
-    </div>
-  );
+function ResultsPane({
+  result,
+  error,
+  loading,
+}: {
+  result: QueryResult | null;
+  error: string | null;
+  loading: boolean;
+}) {
+  return <DataGrid result={result} error={error} loading={loading} />;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -170,23 +140,36 @@ function ResultsPane() {
  *   └──────────────────────────────────────────┘
  */
 export function App() {
-  // PSEUDOCODE:
-  // 1. Read the initConnectionInfo action from the store.
-  // 2. Call it once on mount via useEffect — this fetches GET /api/status and
-  //    writes the result into connectionInfo so StatusBar can display it.
-  // 3. Render the layout shell: sidebar | (editor / results) stacked vertically,
-  //    with the status bar pinned at the bottom.
-
-  // Read only the action, not any state — this component doesn't need to
-  // re-render when connectionInfo changes; StatusBar handles that itself.
   const initConnectionInfo = useAppStore((s) => s.initConnectionInfo);
+  const { execute, loading, result, error } = useQuery();
 
-  // useEffect with [] runs once after the first render — the right place for
-  // a one-time data fetch that shouldn't block the initial paint. Putting the
-  // fetch in the component body would re-run it on every render.
   useEffect(() => {
     void initConnectionInfo();
   }, [initConnectionInfo]);
+
+  // NOTE: useCallback memoizes handleRun so it has a stable identity across
+  // renders of App.
+  //
+  // Why wrap execute at all? execute() returns a Promise, but the onRun prop
+  // signature is (sql: string) => void — components that call it (SqlEditor's
+  // keymap) don't await the result. The `void` keyword here explicitly discards
+  // the promise rather than letting it float unhandled (which would trigger
+  // ESLint's @typescript-eslint/no-floating-promises rule).
+  //
+  // Why useCallback? handleRun is passed as the `onRun` prop to EditorPane,
+  // which passes it to SqlEditor. Inside SqlEditor there is a useEffect that
+  // keeps onRunRef current:
+  //   useEffect(() => { onRunRef.current = onRun; }, [onRun]);
+  // If handleRun were recreated on every App render, that effect would fire on
+  // every render — not catastrophic, but a needless re-run. Because execute
+  // itself is already stable (see useQuery's useCallback), [execute] never
+  // changes, so handleRun is computed exactly once per App mount.
+  const handleRun = useCallback(
+    (sql: string) => {
+      void execute(sql);
+    },
+    [execute]
+  );
 
   return (
     <div className="h-screen flex flex-col bg-base text-primary overflow-hidden">
@@ -207,12 +190,12 @@ export function App() {
 
         {/*
           min-w-0: same flex shrink issue in the horizontal axis — without this
-          a long SQL line in the textarea pushes the column wider than the
-          available space instead of clipping / scrolling inside the textarea.
+          a long SQL line in the editor pushes the column wider than the
+          available space instead of clipping / scrolling inside the editor.
         */}
         <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-          <EditorPane />
-          <ResultsPane />
+          <EditorPane onRun={handleRun} />
+          <ResultsPane result={result} error={error} loading={loading} />
         </main>
       </div>
 
