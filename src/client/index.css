@@ -1,0 +1,177 @@
+/*
+ * src/client/index.css
+ *
+ * WHAT: Global stylesheet — Tailwind v4 import, shadcn integration, dbpeek
+ * design tokens, and base resets.
+ *
+ * WHY: Tailwind v4 uses @theme inside the CSS file (not a JS config) to define
+ * custom design tokens. shadcn also injects its own semantic tokens here via
+ * @theme inline and :root / .dark blocks. We override those tokens to match
+ * the dbpeek dark palette so all shadcn components automatically use our colours.
+ *
+ * HOW: Imported once by src/client/main.tsx. The @tailwindcss/vite plugin
+ * processes this file and generates all utility classes found anywhere in the build.
+ */
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+/* ── Dark mode variant ───────────────────────────────────────────────────── */
+/*
+ * Tells Tailwind that `dark:` variants apply when an ancestor element has the
+ * class `dark`. We add that class to <html> in main.tsx so dark mode is always
+ * active — dbpeek has no light mode.
+ */
+@custom-variant dark (&:is(.dark *));
+
+/* ── dbpeek design tokens ────────────────────────────────────────────────── */
+/*
+ * @theme registers custom values into Tailwind's token system.
+ * --color-base  → bg-base, text-base, border-base …
+ * --font-mono   → font-mono
+ *
+ * These tokens are *in addition to* shadcn's semantic tokens below.
+ * Use them for structural layout (backgrounds, borders, text). Use shadcn
+ * tokens (bg-background, text-foreground) inside shadcn components.
+ */
+@theme {
+  --color-base:       #0a0a0f;   /* deepest — main editor canvas */
+  --color-surface:    #10101a;   /* slightly lifted — sidebar, tab bar, panels */
+  --color-elevated:   #16162a;   /* highest — modals, tooltips, dropdowns */
+
+  --color-border:     #1f2033;
+
+  --color-primary:    #ededf0;
+  --color-muted:      #8888a8;
+
+  --color-accent:     #6e6aff;
+  --color-accent-dim: #3d3a8f;
+
+  --color-success:    #34d399;
+  --color-danger:     #f87171;
+
+  --font-sans: 'Geist Variable', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* ── shadcn semantic tokens (mapped to the dbpeek palette) ───────────────── */
+/*
+ * shadcn components use CSS variables like --background, --foreground, --border
+ * etc. (not Tailwind utility classes directly). The @theme inline block below
+ * bridges those raw CSS variables to Tailwind utility classes.
+ *
+ * We override the :root values shadcn generated to force the dark palette
+ * permanently. The .dark block keeps the same values so toggling the class
+ * has no visible effect — we're always dark.
+ */
+@theme inline {
+  --color-background:         var(--background);
+  --color-foreground:         var(--foreground);
+  --color-card:               var(--card);
+  --color-card-foreground:    var(--card-foreground);
+  --color-popover:            var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary:            var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary:          var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted:              var(--muted);
+  --color-muted-foreground:   var(--muted-foreground);
+  --color-accent:             var(--accent);
+  --color-accent-foreground:  var(--accent-foreground);
+  --color-destructive:        var(--destructive);
+  --color-border:             var(--border);
+  --color-input:              var(--input);
+  --color-ring:               var(--ring);
+  --radius-sm:  calc(var(--radius) * 0.6);
+  --radius-md:  calc(var(--radius) * 0.8);
+  --radius-lg:  var(--radius);
+  --radius-xl:  calc(var(--radius) * 1.4);
+}
+
+/* ── Always-dark token values ────────────────────────────────────────────── */
+/*
+ * Override shadcn's generated light-mode :root values with the dbpeek dark
+ * palette. Because we always add the `dark` class to <html>, we could put
+ * everything only in .dark — but setting :root too means there's no flash of
+ * light colours if the class is momentarily absent during hydration.
+ */
+:root {
+  --background:           #0a0a0f;   /* = --color-base */
+  --foreground:           #ededf0;
+  --card:                 #10101a;   /* = --color-surface */
+  --card-foreground:      #ededf0;
+  --popover:              #16162a;   /* = --color-elevated */
+  --popover-foreground:   #ededf0;
+  --primary:              #6e6aff;   /* accent as primary interactive colour */
+  --primary-foreground:   #ededf0;
+  --secondary:            #10101a;
+  --secondary-foreground: #ededf0;
+  --muted:                #10101a;
+  --muted-foreground:     #8888a8;
+  --accent:               #6e6aff;
+  --accent-foreground:    #ededf0;
+  --destructive:          #f87171;
+  --border:               #1f2033;
+  --input:                #1f2033;
+  --ring:                 #6e6aff;
+  --radius:               0.375rem;
+}
+
+.dark {
+  --background:           #0a0a0f;
+  --foreground:           #ededf0;
+  --card:                 #10101a;
+  --card-foreground:      #ededf0;
+  --popover:              #16162a;
+  --popover-foreground:   #ededf0;
+  --primary:              #6e6aff;
+  --primary-foreground:   #ededf0;
+  --secondary:            #10101a;
+  --secondary-foreground: #ededf0;
+  --muted:                #10101a;
+  --muted-foreground:     #8888a8;
+  --accent:               #6e6aff;
+  --accent-foreground:    #ededf0;
+  --destructive:          #f87171;
+  --border:               #1f2033;
+  --input:                #1f2033;
+  --ring:                 #6e6aff;
+}
+
+/* ── Base resets ─────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar styling ───────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: var(--color-surface); }
+::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--color-surface);
+}
