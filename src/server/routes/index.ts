@@ -39,6 +39,7 @@
 
 import { Router } from 'express';
 import queryRouter from './query.js';
+import statusRouter from './status.js';
 
 // Create the root router that server/index.ts will mount under /api.
 // All routes registered below will be prefixed with /api automatically.
@@ -48,5 +49,10 @@ const router = Router();
 // The queryRouter handles POST / internally; mounting it at '/query' means
 // its handler is reachable at POST /api/query end-to-end.
 router.use('/query', queryRouter);
+
+// GET /api/status — database connection metadata and health check.
+// The statusRouter handles GET / internally; mounting it at '/status' means
+// its handler is reachable at GET /api/status end-to-end.
+router.use('/status', statusRouter);
 
 export default router;
