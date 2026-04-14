@@ -1,225 +1,147 @@
 /*
  * src/client/index.css
  *
- * WHAT: Global stylesheet — Tailwind v4 import, theme tokens, and base resets.
+ * WHAT: Global stylesheet — Tailwind v4 import, shadcn integration, dbpeek
+ * design tokens, and base resets.
  *
  * WHY: Tailwind v4 uses @theme inside the CSS file (not a JS config) to define
- * custom design tokens. Every token defined in @theme becomes a real Tailwind
- * utility class — e.g. --color-surface becomes bg-surface, text-surface, etc.
+ * custom design tokens. shadcn also injects its own semantic tokens here via
+ * @theme inline and :root / .dark blocks. We override those tokens to match
+ * the dbpeek dark palette so all shadcn components automatically use our colours.
  *
  * HOW: Imported once by src/client/main.tsx. The @tailwindcss/vite plugin
  * processes this file and generates all utility classes found anywhere in the build.
  */
 
 @import "tailwindcss";
-
 @import "tw-animate-css";
-
 @import "shadcn/tailwind.css";
-
 @import "@fontsource-variable/geist";
 
+/* ── Dark mode variant ───────────────────────────────────────────────────── */
 /*
- ---break---
+ * Tells Tailwind that `dark:` variants apply when an ancestor element has the
+ * class `dark`. We add that class to <html> in main.tsx so dark mode is always
+ * active — dbpeek has no light mode.
  */
-
 @custom-variant dark (&:is(.dark *));
 
-/* ── Design tokens ────────────────────────────────────────────────────────── */
+/* ── dbpeek design tokens ────────────────────────────────────────────────── */
 /*
  * @theme registers custom values into Tailwind's token system.
- * Each --color-* variable becomes bg-*, text-*, border-*, etc.
- * Each --font-* variable becomes font-*.
+ * --color-base  → bg-base, text-base, border-base …
+ * --font-mono   → font-mono
  *
- * Reference: https://tailwindcss.com/docs/v4-upgrade#using-css-theme-variables
+ * These tokens are *in addition to* shadcn's semantic tokens below.
+ * Use them for structural layout (backgrounds, borders, text). Use shadcn
+ * tokens (bg-background, text-foreground) inside shadcn components.
  */
 @theme {
-  /* Background layers — three depths for the dark UI */
-  --color-base:     #0a0a0f;   /* deepest — main editor canvas */
-  --color-surface:  #10101a;   /* slightly lifted — sidebar, tab bar, panels */
-  --color-elevated: #16162a;   /* highest — modals, tooltips, dropdowns */
+  --color-base:       #0a0a0f;   /* deepest — main editor canvas */
+  --color-surface:    #10101a;   /* slightly lifted — sidebar, tab bar, panels */
+  --color-elevated:   #16162a;   /* highest — modals, tooltips, dropdowns */
 
-  /* Border */
-  --color-border: #1f2033;
+  --color-border:     #1f2033;
 
-  /* Text */
-  --color-primary: #ededf0;
-  --color-muted:   #8888a8;
+  --color-primary:    #ededf0;
+  --color-muted:      #8888a8;
 
-  /* Accent */
-  --color-accent:     #6e6aff;  /* primary interactive / focus colour */
+  --color-accent:     #6e6aff;
   --color-accent-dim: #3d3a8f;
 
-  /* Status indicators */
-  --color-success: #34d399;
-  --color-danger:  #f87171;
+  --color-success:    #34d399;
+  --color-danger:     #f87171;
 
-  /* Font stacks */
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: 'Geist Variable', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
 
-/* ── Base resets ──────────────────────────────────────────────────────────── */
-html,
-body,
-#root {
-  height: 100%;
-  /* The app fills the full viewport; individual scrollable panels use
-     overflow-y-auto on themselves, not the root. */
-  overflow: hidden;
-}
-
-body {
-  /* Tailwind's preflight already sets box-sizing and removes margins,
-     so we only need the font and antialiasing here. */
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-}
-
-/* ── Scrollbar styling ────────────────────────────────────────────────────── */
+/* ── shadcn semantic tokens (mapped to the dbpeek palette) ───────────────── */
 /*
- * Slim, dark scrollbars that match the colour palette.
- * ::-webkit-scrollbar covers Chrome / Edge / Safari.
- * scrollbar-* covers Firefox.
+ * shadcn components use CSS variables like --background, --foreground, --border
+ * etc. (not Tailwind utility classes directly). The @theme inline block below
+ * bridges those raw CSS variables to Tailwind utility classes.
+ *
+ * We override the :root values shadcn generated to force the dark palette
+ * permanently. The .dark block keeps the same values so toggling the class
+ * has no visible effect — we're always dark.
  */
-::-webkit-scrollbar        { width: 6px; height: 6px; }
-::-webkit-scrollbar-track  { background: var(--color-surface); }
-::-webkit-scrollbar-thumb  { background: var(--color-border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) var(--color-surface);
-}
-
-/*
- ---break---
- */
-
 @theme inline {
-  --font-heading:     var(--font-sans);
-  --font-sans:     'Geist Variable', sans-serif;
-  --color-sidebar-ring:     var(--sidebar-ring);
-  --color-sidebar-border:     var(--sidebar-border);
-  --color-sidebar-accent-foreground:     var(--sidebar-accent-foreground);
-  --color-sidebar-accent:     var(--sidebar-accent);
-  --color-sidebar-primary-foreground:     var(--sidebar-primary-foreground);
-  --color-sidebar-primary:     var(--sidebar-primary);
-  --color-sidebar-foreground:     var(--sidebar-foreground);
-  --color-sidebar:     var(--sidebar);
-  --color-chart-5:     var(--chart-5);
-  --color-chart-4:     var(--chart-4);
-  --color-chart-3:     var(--chart-3);
-  --color-chart-2:     var(--chart-2);
-  --color-chart-1:     var(--chart-1);
-  --color-ring:     var(--ring);
-  --color-input:     var(--input);
-  --color-border:     var(--border);
-  --color-destructive:     var(--destructive);
-  --color-accent-foreground:     var(--accent-foreground);
-  --color-accent:     var(--accent);
-  --color-muted-foreground:     var(--muted-foreground);
-  --color-muted:     var(--muted);
-  --color-secondary-foreground:     var(--secondary-foreground);
-  --color-secondary:     var(--secondary);
-  --color-primary-foreground:     var(--primary-foreground);
-  --color-primary:     var(--primary);
-  --color-popover-foreground:     var(--popover-foreground);
-  --color-popover:     var(--popover);
-  --color-card-foreground:     var(--card-foreground);
-  --color-card:     var(--card);
-  --color-foreground:     var(--foreground);
-  --color-background:     var(--background);
-  --radius-sm:     calc(var(--radius) * 0.6);
-  --radius-md:     calc(var(--radius) * 0.8);
-  --radius-lg:     var(--radius);
-  --radius-xl:     calc(var(--radius) * 1.4);
-  --radius-2xl:     calc(var(--radius) * 1.8);
-  --radius-3xl:     calc(var(--radius) * 2.2);
-  --radius-4xl:     calc(var(--radius) * 2.6);
+  --color-background:         var(--background);
+  --color-foreground:         var(--foreground);
+  --color-card:               var(--card);
+  --color-card-foreground:    var(--card-foreground);
+  --color-popover:            var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary:            var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary:          var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted:              var(--muted);
+  --color-muted-foreground:   var(--muted-foreground);
+  --color-accent:             var(--accent);
+  --color-accent-foreground:  var(--accent-foreground);
+  --color-destructive:        var(--destructive);
+  --color-border:             var(--border);
+  --color-input:              var(--input);
+  --color-ring:               var(--ring);
+  --radius-sm:  calc(var(--radius) * 0.6);
+  --radius-md:  calc(var(--radius) * 0.8);
+  --radius-lg:  var(--radius);
+  --radius-xl:  calc(var(--radius) * 1.4);
 }
 
+/* ── Always-dark token values ────────────────────────────────────────────── */
 /*
- ---break---
+ * Override shadcn's generated light-mode :root values with the dbpeek dark
+ * palette. Because we always add the `dark` class to <html>, we could put
+ * everything only in .dark — but setting :root too means there's no flash of
+ * light colours if the class is momentarily absent during hydration.
  */
-
 :root {
-  --background:     oklch(1 0 0);
-  --foreground:     oklch(0.145 0 0);
-  --card:     oklch(1 0 0);
-  --card-foreground:     oklch(0.145 0 0);
-  --popover:     oklch(1 0 0);
-  --popover-foreground:     oklch(0.145 0 0);
-  --primary:     oklch(0.205 0 0);
-  --primary-foreground:     oklch(0.985 0 0);
-  --secondary:     oklch(0.97 0 0);
-  --secondary-foreground:     oklch(0.205 0 0);
-  --muted:     oklch(0.97 0 0);
-  --muted-foreground:     oklch(0.556 0 0);
-  --accent:     oklch(0.97 0 0);
-  --accent-foreground:     oklch(0.205 0 0);
-  --destructive:     oklch(0.577 0.245 27.325);
-  --border:     oklch(0.922 0 0);
-  --input:     oklch(0.922 0 0);
-  --ring:     oklch(0.708 0 0);
-  --chart-1:     oklch(0.87 0 0);
-  --chart-2:     oklch(0.556 0 0);
-  --chart-3:     oklch(0.439 0 0);
-  --chart-4:     oklch(0.371 0 0);
-  --chart-5:     oklch(0.269 0 0);
-  --radius:     0.625rem;
-  --sidebar:     oklch(0.985 0 0);
-  --sidebar-foreground:     oklch(0.145 0 0);
-  --sidebar-primary:     oklch(0.205 0 0);
-  --sidebar-primary-foreground:     oklch(0.985 0 0);
-  --sidebar-accent:     oklch(0.97 0 0);
-  --sidebar-accent-foreground:     oklch(0.205 0 0);
-  --sidebar-border:     oklch(0.922 0 0);
-  --sidebar-ring:     oklch(0.708 0 0);
+  --background:           #0a0a0f;   /* = --color-base */
+  --foreground:           #ededf0;
+  --card:                 #10101a;   /* = --color-surface */
+  --card-foreground:      #ededf0;
+  --popover:              #16162a;   /* = --color-elevated */
+  --popover-foreground:   #ededf0;
+  --primary:              #6e6aff;   /* accent as primary interactive colour */
+  --primary-foreground:   #ededf0;
+  --secondary:            #10101a;
+  --secondary-foreground: #ededf0;
+  --muted:                #10101a;
+  --muted-foreground:     #8888a8;
+  --accent:               #6e6aff;
+  --accent-foreground:    #ededf0;
+  --destructive:          #f87171;
+  --border:               #1f2033;
+  --input:                #1f2033;
+  --ring:                 #6e6aff;
+  --radius:               0.375rem;
 }
-
-/*
- ---break---
- */
 
 .dark {
-  --background:     oklch(0.145 0 0);
-  --foreground:     oklch(0.985 0 0);
-  --card:     oklch(0.205 0 0);
-  --card-foreground:     oklch(0.985 0 0);
-  --popover:     oklch(0.205 0 0);
-  --popover-foreground:     oklch(0.985 0 0);
-  --primary:     oklch(0.922 0 0);
-  --primary-foreground:     oklch(0.205 0 0);
-  --secondary:     oklch(0.269 0 0);
-  --secondary-foreground:     oklch(0.985 0 0);
-  --muted:     oklch(0.269 0 0);
-  --muted-foreground:     oklch(0.708 0 0);
-  --accent:     oklch(0.269 0 0);
-  --accent-foreground:     oklch(0.985 0 0);
-  --destructive:     oklch(0.704 0.191 22.216);
-  --border:     oklch(1 0 0 / 10%);
-  --input:     oklch(1 0 0 / 15%);
-  --ring:     oklch(0.556 0 0);
-  --chart-1:     oklch(0.87 0 0);
-  --chart-2:     oklch(0.556 0 0);
-  --chart-3:     oklch(0.439 0 0);
-  --chart-4:     oklch(0.371 0 0);
-  --chart-5:     oklch(0.269 0 0);
-  --sidebar:     oklch(0.205 0 0);
-  --sidebar-foreground:     oklch(0.985 0 0);
-  --sidebar-primary:     oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground:     oklch(0.985 0 0);
-  --sidebar-accent:     oklch(0.269 0 0);
-  --sidebar-accent-foreground:     oklch(0.985 0 0);
-  --sidebar-border:     oklch(1 0 0 / 10%);
-  --sidebar-ring:     oklch(0.556 0 0);
+  --background:           #0a0a0f;
+  --foreground:           #ededf0;
+  --card:                 #10101a;
+  --card-foreground:      #ededf0;
+  --popover:              #16162a;
+  --popover-foreground:   #ededf0;
+  --primary:              #6e6aff;
+  --primary-foreground:   #ededf0;
+  --secondary:            #10101a;
+  --secondary-foreground: #ededf0;
+  --muted:                #10101a;
+  --muted-foreground:     #8888a8;
+  --accent:               #6e6aff;
+  --accent-foreground:    #ededf0;
+  --destructive:          #f87171;
+  --border:               #1f2033;
+  --input:                #1f2033;
+  --ring:                 #6e6aff;
 }
 
-/*
- ---break---
- */
-
+/* ── Base resets ─────────────────────────────────────────────────────────── */
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -230,4 +152,26 @@ body {
   html {
     @apply font-sans;
   }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar styling ───────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: var(--color-surface); }
+::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--color-surface);
 }

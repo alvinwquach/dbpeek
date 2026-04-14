@@ -19,6 +19,10 @@ import './index.css';
 
 // ── Mount ─────────────────────────────────────────────────────────────────────
 
+// dbpeek is always dark — add the class now so shadcn's .dark token values
+// apply before the first paint and there's no flash of light colours.
+document.documentElement.classList.add('dark');
+
 // Locate the #root element defined in index.html.
 // We assert non-null with ! because we control index.html and know #root exists.
 // If it's ever missing (e.g. someone edits index.html), we want an explicit crash
