@@ -2,7 +2,8 @@
  * src/client/components/Editor/SqlEditor.tsx
  *
  * WHAT:
- *   A React component that mounts a CodeMirror 6 SQL editor into the DOM.
+ *   A React component that mounts a CodeMirror 6 SQL editor into the DOM,
+ *   with live schema-aware autocomplete powered by the connected database.
  *
  * WHY CodeMirror 6 instead of Monaco:
  *   Monaco ships ~5–10 MB of JS. CodeMirror 6 is ~300 KB. dbpeek is distributed
@@ -18,12 +19,16 @@
  *                  Must be destroyed on component unmount (view.destroy()).
  *   Extensions   — composable units that bolt on behavior: syntax highlighting,
  *                  keymaps, themes, line numbers, autocomplete, etc.
+ *   Compartment  — a wrapper that makes a slice of the extension tree hot-
+ *                  swappable at runtime, without tearing down the whole editor.
+ *                  We use one to hold the sql() language extension so we can
+ *                  inject the live schema object after the initial mount.
  *
  * REACT / CODEMIRROR BRIDGE:
  *   The EditorView is an imperative widget, not a React component. We bridge
  *   them via two refs:
- *     containerRef — the <div> element that becomes the CM parent.
- *     viewRef      — holds the live EditorView so callbacks can read its state.
+ *     containerRef  — the <div> element that becomes the CM parent.
+ *     viewRef       — holds the live EditorView so callbacks can read its state.
  *   The useEffect creates the view exactly once and returns view.destroy() as
  *   its cleanup. React Strict Mode double-invokes effects in development, so the
  *   cleanup must be idempotent — view.destroy() is.
@@ -35,10 +40,28 @@
  *   undo history, and causing a visible flash. Instead we store them in refs and
  *   update the refs on every render. The closure always calls ref.current, so it
  *   always reaches the latest version without any CM teardown.
+ *
+ * SCHEMA AUTOCOMPLETE ARCHITECTURE:
+ *   @codemirror/lang-sql's sql() function accepts a `schema` option shaped as:
+ *     { tableName: ["col1", "col2", ...], ... }
+ *   When this is present the extension provides:
+ *     - Table name completion after FROM, JOIN, UPDATE, INTO, etc.
+ *     - Column name completion after "tableName." (dot notation).
+ *     - SQL keyword completion everywhere (SELECT, WHERE, GROUP BY, …).
+ *   Completions are triggered automatically on every keystroke — no Ctrl+Space
+ *   needed.  The dropdown shows a type badge for each entry: "table", "column",
+ *   or "keyword".
+ *
+ *   The schema arrives asynchronously (fetched by useSchema on App mount).  To
+ *   avoid recreating the editor when it lands, the sql() extension lives inside
+ *   a Compartment.  When schemaMap changes in Zustand, a second useEffect
+ *   dispatches compartment.reconfigure(sql({ schema: schemaMap })) — a cheap
+ *   transaction that swaps only the language extension while preserving cursor,
+ *   undo stack, and selection.
  */
 
-import { useEffect, useRef } from "react";
-import { EditorState } from "@codemirror/state";
+import { useEffect, useRef, useMemo } from "react";
+import { EditorState, Compartment } from "@codemirror/state";
 import {
   EditorView,
   type ViewUpdate,
@@ -56,10 +79,11 @@ import {
   historyKeymap,
   indentWithTab,
 } from "@codemirror/commands";
-import { sql } from "@codemirror/lang-sql";
+import { sql, type SQLNamespace } from "@codemirror/lang-sql";
 import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
+import { useAppStore } from "../../stores/app";
 
 // ===== THEME =====
 
@@ -172,11 +196,31 @@ export function SqlEditor({
   onChange,
   initialDoc = "",
 }: SqlEditorProps) {
+  // ── Zustand: subscribe to the live schema map ─────────────────────────────
+  // schemaMap is null on first render (schema not yet fetched) and populated
+  // once useSchema completes in App.tsx.  We subscribe here so that this
+  // component re-renders when the schema lands, triggering the reconfigure
+  // effect below.
+  const schemaMap = useAppStore((s) => s.schemaMap);
+
   // The <div> that CM will mount its DOM tree into.
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Holds the live EditorView after mount so it can be destroyed on cleanup.
   const viewRef = useRef<EditorView | null>(null);
+
+  // ── Language compartment ──────────────────────────────────────────────────
+  // A Compartment wraps the sql() language extension so we can hot-swap it
+  // (with a new schema object) via a dispatch transaction, without tearing
+  // down the entire EditorView.  The compartment instance must be stable
+  // across renders — useMemo with an empty dep array guarantees this.
+  //
+  // WHY useMemo instead of useRef:
+  //   Both give stable values across renders, but useMemo makes the intent
+  //   explicit: "compute once, never recompute." useRef would work but the
+  //   initializer runs inside the render function regardless — there's no
+  //   functional difference here, just semantics.
+  const sqlCompartment = useMemo(() => new Compartment(), []);
 
   // ── Callback refs (the "always-current" pattern) ─────────────────────────
   // These are assigned synchronously on every render, before any effects fire.
@@ -206,11 +250,12 @@ export function SqlEditor({
           // Show a cursor at the position where a drag-and-drop would insert.
           dropCursor(),
 
-          // ── Language support ──────────────────────────────────────────────
-          // SQL syntax highlighting and keyword/identifier autocompletion.
-          // sql() defaults to StandardSQL. We can later pass `{ dialect, schema }`
-          // here to get table/column completions from the schema sidebar.
-          sql(),
+          // ── Language support (inside a Compartment) ───────────────────────
+          // Wrapped in sqlCompartment so the schema can be hot-swapped later
+          // via compartment.reconfigure(sql({ schema: ... })) without
+          // recreating the editor.  On initial mount the schema is null, so we
+          // start with keyword-only completion and upgrade once useSchema loads.
+          sqlCompartment.of(sql()),
 
           // ── Editing enhancements ──────────────────────────────────────────
           // Undo/redo history stack (Cmd+Z, Cmd+Shift+Z).
@@ -219,8 +264,10 @@ export function SqlEditor({
           bracketMatching(),
           // Re-indent the current line when typing ;, ), }, etc.
           indentOnInput(),
-          // Dropdown autocomplete for SQL keywords and future schema items.
-          autocompletion(),
+          // Dropdown autocomplete for SQL keywords and schema items.
+          // `activateOnTyping: true` makes completions appear on every keystroke
+          // (the default), not just on explicit Ctrl+Space.
+          autocompletion({ activateOnTyping: true }),
 
           // ── Themes ───────────────────────────────────────────────────────
           // oneDark provides syntax token colors (keywords, strings, comments).
@@ -285,6 +332,40 @@ export function SqlEditor({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally empty — editor is created once; props flow through refs
+
+  // ── Schema reconfigure effect ─────────────────────────────────────────────
+  // Runs whenever schemaMap changes in Zustand (null → populated, or refreshed).
+  // Dispatches a Compartment.reconfigure() transaction to swap in a new sql()
+  // extension that carries the live schema object.
+  //
+  // WHY this is a separate effect from the mount effect:
+  //   The mount effect runs once with [] deps. If we put schema reconfiguration
+  //   inside it, we'd have to add schemaMap as a dep — which would recreate the
+  //   entire editor (and lose cursor position + undo history) every time the
+  //   schema changes. A separate effect with [schemaMap] as its dep reconfigures
+  //   only the compartment slot, leaving the rest of the editor state intact.
+  //
+  // WHY we cast schemaMap to SQLNamespace:
+  //   SQLNamespace is { [name: string]: SQLNamespace } | string[] | Completion[].
+  //   SchemaMap is Record<string, string[]> which satisfies the nested-object
+  //   variant — TypeScript just needs the explicit cast because SchemaMap's
+  //   leaf values are string[] not SQLNamespace (even though string[] IS a valid
+  //   SQLNamespace leaf).
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    // Build the sql() config: no schema = keyword-only; schema present = full
+    // table + column + keyword completions.
+    const sqlExtension =
+      schemaMap != null
+        ? sql({ schema: schemaMap as SQLNamespace, upperCaseKeywords: false })
+        : sql();
+
+    view.dispatch({
+      effects: sqlCompartment.reconfigure(sqlExtension),
+    });
+  }, [schemaMap, sqlCompartment]);
 
   return (
     // The div that CodeMirror mounts into. w-full h-full makes it fill the

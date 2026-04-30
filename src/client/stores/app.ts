@@ -18,6 +18,7 @@
  */
 
 import { create } from "zustand";
+import type { SchemaMap, SchemaColumns } from "../hooks/useSchema";
 
 // ===== EXPORTED TYPES =====
 // These are defined here (alongside the store) because they describe the shape
@@ -74,6 +75,27 @@ interface AppState {
   /** Populated by StatusBar on mount via GET /api/status. Null = not yet loaded. */
   connectionInfo: StatusResponse | null;
 
+  // ── Schema state (populated by useSchema on mount) ─────────────────────────
+
+  /**
+   * Table → column-name-array map consumed by @codemirror/lang-sql's `schema`
+   * option.  Null = schema not yet loaded.
+   * Example: { users: ["id", "email"], orders: ["id", "user_id", "total"] }
+   */
+  schemaMap: SchemaMap | null;
+
+  /**
+   * Table → ColumnInfo-array map with rich metadata (type, nullable, PK/FK/index).
+   * Null = schema not yet loaded.  Used by the sidebar tree (Phase 3).
+   */
+  schemaColumns: SchemaColumns | null;
+
+  /** True while GET /api/schema (and per-table column fetches) are in-flight. */
+  schemaLoading: boolean;
+
+  /** Human-readable error message if the schema fetch failed, null otherwise. */
+  schemaError: string | null;
+
   /** Active result view mode. Grid is the default. */
   currentView: ViewMode;
 
@@ -90,6 +112,15 @@ interface AppState {
 
   /** Called by StatusBar once /api/status resolves (or rejects). */
   setConnectionInfo: (info: StatusResponse | null) => void;
+
+  /** Called by useSchema once all table + column fetches complete. */
+  setSchema: (map: SchemaMap, columns: SchemaColumns) => void;
+
+  /** Called by useSchema to toggle the in-flight indicator. */
+  setSchemaLoading: (loading: boolean) => void;
+
+  /** Called by useSchema to surface a fetch error. */
+  setSchemaError: (error: string | null) => void;
 
   /** Switches the result panel between grid, chart, and explain views. */
   setCurrentView: (view: ViewMode) => void;
@@ -133,6 +164,11 @@ export const useAppStore = create<AppState>()((set) => ({
   connectionInfo: null,
   currentView: "grid",
 
+  schemaMap: null,
+  schemaColumns: null,
+  schemaLoading: false,
+  schemaError: null,
+
   // Start with one blank tab so the editor is never empty.
   tabs: [{ id: crypto.randomUUID(), title: "Query 1", sql: "" }],
   activeTabIndex: 0,
@@ -142,6 +178,11 @@ export const useAppStore = create<AppState>()((set) => ({
   // ── Actions ─────────────────────────────────────────────────────────────────
 
   setConnectionInfo: (info) => set({ connectionInfo: info }),
+
+  setSchema: (map, columns) =>
+    set({ schemaMap: map, schemaColumns: columns }),
+  setSchemaLoading: (loading) => set({ schemaLoading: loading }),
+  setSchemaError: (error) => set({ schemaError: error }),
 
   setCurrentView: (view) => set({ currentView: view }),
 

@@ -37,6 +37,7 @@ import { StatusBar } from "./components/StatusBar";
 import { SqlEditor } from "./components/Editor/SqlEditor";
 import { DataGrid } from "./components/Results/DataGrid";
 import { useQueryExecution } from "./hooks/useQuery";
+import { useSchema } from "./hooks/useSchema";
 
 // ===== LAYOUT CONSTANTS =====
 
@@ -52,6 +53,13 @@ const MIN_RESULTS_PX = 60;
 // ===== COMPONENT =====
 
 export default function App() {
+  // ── Schema fetch (runs once on mount) ─────────────────────────────────────
+  // Fetches GET /api/schema + GET /api/schema/:table for every table, then
+  // writes the combined result into the Zustand store.  SqlEditor subscribes
+  // to schemaMap in the store and reconfigures its autocomplete extension when
+  // the data lands.  The sidebar (Phase 3) will use schemaColumns the same way.
+  useSchema();
+
   // ── Query execution state ──────────────────────────────────────────────────
   // useQueryExecution manages the fetch lifecycle (loading, result, error) and
   // pushes entries to the Zustand history array on each execution.
