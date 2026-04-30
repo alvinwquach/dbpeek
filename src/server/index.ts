@@ -40,14 +40,21 @@ import { registerRoutes } from "./routes/index.js";
 
 // ===== PATH RESOLUTION =====
 
-// WHY __dirname shim:
-//   tsup compiles to CJS (see tsup.config.ts), so __dirname IS available at
-//   runtime. But TypeScript's type checker runs in the context of the source
-//   file, which uses `"type": "module"` in the project tsconfig. The shim
-//   is a no-op at runtime (CJS provides __dirname natively) but satisfies
-//   the type checker when `moduleResolution` is set to Node16/NodeNext.
-//   If tsup switches to ESM output in the future, the shim will be needed
-//   for real — keeping it now means zero change required on that day.
+// WHY fileURLToPath(import.meta.url) instead of the native CJS __dirname:
+//   package.json sets "type": "module", so TypeScript (with moduleResolution:
+//   NodeNext) treats every .ts file as ESM and does not expose the CJS globals
+//   __dirname and __filename in the type scope. Using import.meta.url is the
+//   idiomatic ESM way to locate the current file, and TypeScript accepts it.
+//
+// WHY this works at runtime despite compiling to CJS:
+//   tsup.config.ts sets shims: true, which instructs tsup to inject a banner
+//   at the top of the CJS output that defines:
+//     var import_meta = { url: require("url").pathToFileURL(__filename).href }
+//   esbuild then rewrites import.meta → import_meta, so import.meta.url becomes
+//   the correct file:// URL for the compiled .cjs file. fileURLToPath() converts
+//   it back to a native OS path, and path.dirname() gives the directory.
+//   Without shims: true, import.meta would be {} and import.meta.url undefined,
+//   causing fileURLToPath to throw a TypeError on the first require().
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -135,11 +142,13 @@ export function createApp(config: ConnectionConfig, db: Knex): Express {
 
   // ── Static file serving ────────────────────────────────────────────────────
 
-  // WHY `path.join(__dirname, "../../client/dist")`:
-  //   At runtime, this file is at dist/server/index.js. The Vite output lands
-  //   at dist/client/ (see vite.config.ts). Going up two levels from
-  //   dist/server/ reaches dist/, then down into client/dist reaches the built
-  //   React app. The path is relative to the compiled output, not the source.
+  // WHY `path.join(__dirname, "../client")`:
+  //   At runtime, this file lives at dist/server/index.js.
+  //   __dirname = <project-root>/dist/server/
+  //   One "../" up reaches <project-root>/dist/
+  //   Then "client" resolves to <project-root>/dist/client/ — exactly where
+  //   `vite build` writes its output (outDir: "../../dist/client" relative to
+  //   root src/client/ in vite.config.ts).
   //
   // WHY serve static files BEFORE API routes:
   //   Express matches middleware in registration order. Serving static files
@@ -151,7 +160,7 @@ export function createApp(config: ConnectionConfig, db: Knex): Express {
   //   This is a SPA — all deep links (e.g. /tables/users) should serve
   //   index.html and let React Router handle routing client-side. The fallback
   //   route below handles this by catching any unmatched path.
-  const clientDistPath = path.join(__dirname, "../../client/dist");
+  const clientDistPath = path.join(__dirname, "../client");
   app.use(express.static(clientDistPath));
 
   // ── API routes ─────────────────────────────────────────────────────────────

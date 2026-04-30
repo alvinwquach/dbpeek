@@ -84,10 +84,22 @@ export default defineConfig({
 
   // ── Shims ────────────────────────────────────────────────────────────────────
   //
-  // When `format` includes "esm", tsup can inject shims for __dirname and
-  // __filename (which don't exist in native ESM). We leave this off for now
-  // since we're targeting CJS where those globals are native.
-  shims: false,
+  // shims: true tells tsup to inject format-bridging globals so that code
+  // written with one module system's idioms compiles cleanly to the other:
+  //
+  //   CJS output (our case): tsup injects a banner that defines import.meta.url
+  //     as `require("url").pathToFileURL(__filename).href`. This makes the
+  //     src/server/index.ts __dirname shim (fileURLToPath(import.meta.url))
+  //     work correctly at runtime and silences esbuild's "import.meta will be
+  //     empty" warning.
+  //
+  //   ESM output (not used here): tsup would instead inject __dirname,
+  //     __filename, and require — the CJS globals that don't exist in native ESM.
+  //
+  // Without this, esbuild replaces import.meta with {} in CJS output, so
+  // import.meta.url is undefined and fileURLToPath(undefined) throws a TypeError
+  // the moment the server module is first required.
+  shims: true,
 
   // ── External packages ────────────────────────────────────────────────────────
   //

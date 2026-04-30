@@ -1,0 +1,51 @@
+/*
+ * CSS entry point for the dbpeek React SPA.
+ *
+ * TAILWIND v4:
+ *   @import "tailwindcss" is the entire Tailwind setup in v4 — no tailwind.config.ts,
+ *   no @tailwind base/components/utilities directives. The @tailwindcss/vite plugin
+ *   processes this import, scans all template files for class names, and generates
+ *   the corresponding utility CSS on demand.
+ *   [source: Tailwind CSS — @import directive]
+ *
+ * GLOBAL RESETS:
+ *   Tailwind's Preflight (the CSS reset bundled with @import "tailwindcss") normalises
+ *   browser defaults: removes default margins, sets box-sizing: border-box, etc.
+ *   We add only the minimal overrides that can't be expressed as utility classes.
+ */
+
+@import "tailwindcss";
+
+/* ===== GLOBAL BASE STYLES ===== */
+
+/*
+ * Set the page background and default text color at the :root level so that
+ * there is no flash of white before React mounts. The same values are used
+ * throughout the app via Tailwind arbitrary-value classes (bg-[#0a0a0f], etc.).
+ */
+:root {
+  color-scheme: dark;
+  background-color: #0a0a0f;
+  color: #ededf0;
+}
+
+/*
+ * Monospace font stack used for the SQL editor and result cells.
+ * Cascadia Code → JetBrains Mono → system monospace, then generic fallback.
+ */
+.font-code {
+  font-family:
+    "Cascadia Code",
+    "JetBrains Mono",
+    "Fira Code",
+    ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
+}
+
+/* Thin scrollbars on all scrollable panels to keep the UI compact */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1f2033 transparent;
+}
