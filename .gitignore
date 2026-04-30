@@ -2,3 +2,17 @@ node_modules/
 dist/
 .env
 *.tgz
+
+# Test artefacts
+coverage/
+
+# Environment files — never commit credentials
+.env.*
+!.env.example
+
+# macOS metadata
+.DS_Store
+
+# Editor metadata
+.vscode/settings.json
+.idea/
