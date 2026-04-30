@@ -4,8 +4,8 @@
 //
 // WHY centralise route registration here instead of calling app.use() directly
 // in server/index.ts:
-//   As the route count grows, each route group (schema, query, tables) will move
-//   into its own file (e.g. routes/query.ts). This file becomes the index that
+//   As the route count grows, each route group lives in its own file
+//   (routes/query.ts, routes/schema.ts, ...). This file is the index that
 //   imports and mounts all of them. Having one registration point means:
 //     1. The full API surface is visible at a glance without opening each file.
 //     2. Cross-cutting concerns (auth middleware, rate-limiting) can be applied
@@ -16,6 +16,7 @@
 import type { Express } from "express";
 import type { Knex } from "../db.js";
 import type { PermissionMode } from "../../types/connection.js";
+import { createQueryRouter } from "./query.js";
 
 /**
  * Mounts all API route handlers onto the Express app.
@@ -27,27 +28,21 @@ import type { PermissionMode } from "../../types/connection.js";
  *   mock Knex instance and a different permission level, without any module-level
  *   state to reset between test cases.
  *
- * WHY permissionMode is threaded through here even though no route uses it yet:
- *   The query route (coming next) will call validateStatement() and needs to know
- *   whether the session allows write or full access. Passing it at registration
- *   time — rather than reading it from a shared variable inside the handler —
- *   keeps the data flow explicit and avoids a hidden global dependency.
+ * WHY permissionMode is threaded all the way to createQueryRouter:
+ *   The query route validates every SQL string against the mode set at CLI
+ *   launch. Passing the mode through registerRoutes (rather than reading it
+ *   from a shared variable inside the handler) keeps the data flow explicit
+ *   and avoids a hidden global dependency. It also means the mode is captured
+ *   in the closure ONCE — there is no API path that mutates it at runtime,
+ *   which is the core of the security guarantee in permissions.ts.
  */
 export function registerRoutes(
   app: Express,
   db: Knex,
   permissionMode: PermissionMode
 ): void {
-  // WHY `void db` and `void permissionMode`:
-  //   Both parameters will be consumed by route handlers added in the next
-  //   iteration. Until then, referencing them with void suppresses TypeScript's
-  //   "declared but its value is never read" hint without disabling the rule
-  //   globally or introducing a fake usage that misleads readers.
-  void db;
-  void permissionMode;
-
   // ── Health check ───────────────────────────────────────────────────────────
-
+  //
   // WHY _req (underscore prefix): the handler signature requires a `req`
   // parameter even though this route doesn't inspect the request. The leading
   // underscore is the TypeScript/ESLint convention for an intentionally unused
@@ -61,9 +56,18 @@ export function registerRoutes(
     res.json({ status: "ok" });
   });
 
+  // ── Query execution ────────────────────────────────────────────────────────
+  //
+  // WHY app.use("/api/query", router) mounts at a subpath:
+  //   The router's own routes ("/" inside the router) become "/api/query"
+  //   externally. Mounting at a subpath lets us add sibling routes inside the
+  //   query namespace later (e.g. POST /api/query/explain) without changing
+  //   the registration call. It also keeps the security-critical query handler
+  //   isolated to a dedicated module file.
+  app.use("/api/query", createQueryRouter(db, permissionMode));
+
   // ── Future routes ──────────────────────────────────────────────────────────
   // Each group will be extracted to its own file and mounted here, e.g.:
   //   app.use("/api/schema", schemaRouter(db));
-  //   app.use("/api/query",  queryRouter(db, permissionMode));
   //   app.use("/api/tables", tablesRouter(db));
 }
