@@ -34,7 +34,7 @@ vi.mock("knex", () => ({
 
 import { createApp } from "../../src/server/index.js";
 import type { Knex } from "../../src/server/db.js";
-import type { PermissionMode } from "../../src/types/connection.js";
+import type { ConnectionConfig } from "../../src/types/connection.js";
 
 // ===== HELPERS =====
 
@@ -55,6 +55,21 @@ function buildMockDb(): Knex & { raw: ReturnType<typeof vi.fn> } {
 }
 
 /**
+ * Builds a ConnectionConfig for testing with a specific permission mode.
+ */
+function buildConfig(mode: "readonly" | "write" | "full"): ConnectionConfig {
+  return {
+    dialect: "postgres",
+    host: "localhost",
+    port: 5432,
+    database: "testdb",
+    user: "user",
+    password: "pass",
+    permissionMode: mode,
+  };
+}
+
+/**
  * Starts an Express app on an ephemeral port and returns the HTTP server and
  * the bound port number.
  *
@@ -70,9 +85,9 @@ function buildMockDb(): Knex & { raw: ReturnType<typeof vi.fn> } {
  */
 function startApp(
   db: Knex,
-  mode: PermissionMode
+  config: ConnectionConfig
 ): Promise<{ server: http.Server; port: number }> {
-  const app = createApp(db, mode);
+  const app = createApp(config, db);
   return new Promise((resolve, reject) => {
     const server = http.createServer(app);
     server.listen(0, "127.0.0.1", () => {
@@ -190,7 +205,7 @@ describe("POST /api/query — success path", () => {
       fields: [{ name: "id" }, { name: "name" }],
     });
 
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status, data } = await postJson(port, "/api/query", {
@@ -223,7 +238,7 @@ describe("POST /api/query — success path", () => {
       { id: 20, name: "Y" },
     ]);
 
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status, data } = await postJson(port, "/api/query", {
@@ -247,7 +262,7 @@ describe("POST /api/query — success path", () => {
     const db = buildMockDb();
     db.raw.mockResolvedValueOnce([]);
 
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status, data } = await postJson(port, "/api/query", {
@@ -266,7 +281,7 @@ describe("POST /api/query — success path", () => {
 describe("POST /api/query — permission denial", () => {
   it("returns 403 with the deny reason when SQL is blocked by the mode", async () => {
     const db = buildMockDb();
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status, data } = await postJson(port, "/api/query", {
@@ -287,7 +302,7 @@ describe("POST /api/query — permission denial", () => {
     const db = buildMockDb();
     db.raw.mockResolvedValueOnce([]); // INSERT response shape (driver-specific)
 
-    const { server, port } = await startApp(db, "write");
+    const { server, port } = await startApp(db, buildConfig("write"));
     openServers.push(server);
 
     const insertRes = await postJson(port, "/api/query", {
@@ -310,7 +325,7 @@ describe("POST /api/query — error mapping", () => {
       new Error('relation "users" does not exist')
     );
 
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status, data } = await postJson(port, "/api/query", {
@@ -327,7 +342,7 @@ describe("POST /api/query — error mapping", () => {
       new Error("Unknown column 'name' in 'field list'")
     );
 
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status, data } = await postJson(port, "/api/query", {
@@ -344,7 +359,7 @@ describe("POST /api/query — error mapping", () => {
       new Error('syntax error at or near "FORM"')
     );
 
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status, data } = await postJson(port, "/api/query", {
@@ -359,7 +374,7 @@ describe("POST /api/query — error mapping", () => {
 describe("POST /api/query — input validation", () => {
   it("returns 400 when sql is missing from the request body", async () => {
     const db = buildMockDb();
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status, data } = await postJson(port, "/api/query", {});
@@ -370,7 +385,7 @@ describe("POST /api/query — input validation", () => {
 
   it("returns 400 when sql is an empty string", async () => {
     const db = buildMockDb();
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status } = await postJson(port, "/api/query", { sql: "" });
@@ -384,7 +399,7 @@ describe("POST /api/query — input validation", () => {
     // happens to start with "[object" (allowed by the validator) but is
     // not what the user intended.
     const db = buildMockDb();
-    const { server, port } = await startApp(db, "readonly");
+    const { server, port } = await startApp(db, buildConfig("readonly"));
     openServers.push(server);
 
     const { status } = await postJson(port, "/api/query", { sql: 42 });

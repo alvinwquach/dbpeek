@@ -221,7 +221,7 @@ afterEach(async () => {
 
 describe("createApp — HTTP responses", () => {
   it("responds 200 to GET /api/health", async () => {
-    const app = createApp(mockDb, "readonly");
+    const app = createApp(baseConfig, mockDb);
     const { server, port } = await startServer(app);
     openServers.push(server);
 
@@ -237,7 +237,7 @@ describe("createApp — HTTP responses", () => {
     //   missing file and Express returns 404. In production it returns 200.
     //   We assert that the server responds (doesn't hang or crash) and that the
     //   status is one of the two expected values. A 500 would indicate a bug.
-    const app = createApp(mockDb, "readonly");
+    const app = createApp(baseConfig, mockDb);
     const { server, port } = await startServer(app);
     openServers.push(server);
 
@@ -246,7 +246,7 @@ describe("createApp — HTTP responses", () => {
   });
 
   it("does not expose a 500 for GET /", async () => {
-    const app = createApp(mockDb, "readonly");
+    const app = createApp(baseConfig, mockDb);
     const { server, port } = await startServer(app);
     openServers.push(server);
 
@@ -255,7 +255,7 @@ describe("createApp — HTTP responses", () => {
   });
 
   it("returns JSON Content-Type for /api/health", async () => {
-    const app = createApp(mockDb, "readonly");
+    const app = createApp(baseConfig, mockDb);
     const { server, port } = await startServer(app);
     openServers.push(server);
 
@@ -266,7 +266,7 @@ describe("createApp — HTTP responses", () => {
 
 describe("createApp — CORS", () => {
   it("allows requests from http://localhost:5173 (Vite dev server)", async () => {
-    const app = createApp(mockDb, "readonly");
+    const app = createApp(baseConfig, mockDb);
     const { server, port } = await startServer(app);
     openServers.push(server);
 
@@ -275,7 +275,7 @@ describe("createApp — CORS", () => {
   });
 
   it("allows requests from http://127.0.0.1:5173", async () => {
-    const app = createApp(mockDb, "readonly");
+    const app = createApp(baseConfig, mockDb);
     const { server, port } = await startServer(app);
     openServers.push(server);
 
@@ -284,7 +284,7 @@ describe("createApp — CORS", () => {
   });
 
   it("does not set ACAO header for a non-localhost origin", async () => {
-    const app = createApp(mockDb, "readonly");
+    const app = createApp(baseConfig, mockDb);
     const { server, port } = await startServer(app);
     openServers.push(server);
 
@@ -312,7 +312,7 @@ describe("listenWithFallback", () => {
 
     // Now try to start a server on the occupied port and verify it lands on a
     // different port (simulating what listenWithFallback does with BASE_PORT).
-    const app = createApp(mockDb, "readonly");
+    const app = createApp(baseConfig, mockDb);
     const server = http.createServer(app);
     openServers.push(server);
 
