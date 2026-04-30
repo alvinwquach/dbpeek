@@ -18,14 +18,25 @@
  *   position relative to the center column's bounding rect.
  *   Min heights prevent both panels from collapsing to zero.
  *
+ * QUERY EXECUTION FLOW:
+ *   1. User types SQL into the CodeMirror editor (SqlEditor).
+ *   2. SqlEditor.onChange fires on every keystroke → stored in currentSqlRef.
+ *   3. User presses Cmd/Ctrl+Enter → SqlEditor.onRun fires with the current doc.
+ *      Alternatively, user clicks the "Run" button in the editor panel header.
+ *   4. execute() from useQueryExecution fires POST /api/query.
+ *   5. loading / result / error flow down as props to DataGrid.
+ *
  * ARCHITECTURE:
  *   - No router. dbpeek is a single-screen tool; panels are toggled in-place.
  *   - State (connectionInfo, tabs, history) lives in the Zustand store.
- *     App.tsx only manages the divider drag, which is purely local UI state.
+ *     App.tsx manages: divider drag (local), current SQL ref (local bridge).
  */
 
 import { useState, useRef, useCallback } from "react";
 import { StatusBar } from "./components/StatusBar";
+import { SqlEditor } from "./components/Editor/SqlEditor";
+import { DataGrid } from "./components/Results/DataGrid";
+import { useQueryExecution } from "./hooks/useQuery";
 
 // ===== LAYOUT CONSTANTS =====
 
@@ -41,6 +52,17 @@ const MIN_RESULTS_PX = 60;
 // ===== COMPONENT =====
 
 export default function App() {
+  // ── Query execution state ──────────────────────────────────────────────────
+  // useQueryExecution manages the fetch lifecycle (loading, result, error) and
+  // pushes entries to the Zustand history array on each execution.
+  const { execute, loading, result, error } = useQueryExecution();
+
+  // currentSqlRef mirrors the live editor content so the Run button in the
+  // panel header can call execute() without having to reach into the CodeMirror
+  // view imperatively. The ref (not state) avoids re-renders on every keystroke.
+  const currentSqlRef = useRef<string>("");
+
+  // ── Panel resize state ─────────────────────────────────────────────────────
   // editorHeightPct is the fraction of the center column's height given to the
   // SQL editor. The results panel gets the remaining (1 - editorHeightPct).
   // 0.4 = 40% editor / 60% results on first load.
@@ -51,6 +73,40 @@ export default function App() {
 
   // isDragging is a ref (not state) because changing it must not cause a render.
   const isDragging = useRef(false);
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  /**
+   * handleEditorChange — keeps currentSqlRef in sync with the CodeMirror doc.
+   * Called by SqlEditor.onChange on every keystroke.
+   *
+   * WHY a ref instead of useState:
+   *   We only need the SQL when the user fires "Run" — not on every character.
+   *   Storing it in state would cause App to re-render on every keystroke, which
+   *   would re-render SqlEditor and DataGrid unnecessarily. A ref is zero-cost.
+   */
+  const handleEditorChange = useCallback((sql: string) => {
+    currentSqlRef.current = sql;
+  }, []);
+
+  /**
+   * handleRun — fires the query with the SQL string passed directly from the
+   * Cmd+Enter keymap inside SqlEditor (which passes view.state.doc.toString()).
+   */
+  const handleRun = useCallback(
+    (sql: string) => {
+      void execute(sql);
+    },
+    [execute]
+  );
+
+  /**
+   * handleRunButtonClick — Run button reads from the ref because the button is
+   * in App.tsx and doesn't have direct access to the CodeMirror document.
+   */
+  const handleRunButtonClick = useCallback(() => {
+    void execute(currentSqlRef.current);
+  }, [execute]);
 
   /**
    * onDividerMouseDown — begins tracking the drag gesture.
@@ -136,25 +192,40 @@ export default function App() {
               <span className="text-[10px] uppercase tracking-widest text-[#4b5563]">
                 SQL Editor
               </span>
-              <span className="text-[10px] text-[#2d3047]">
-                Query 1
-              </span>
+
+              {/* Run button — alternative to Cmd/Ctrl+Enter */}
+              {/*
+                Disabled while loading to prevent concurrent query submissions.
+                The keyboard hint ("⌘↵") teaches new users the shortcut by
+                surfacing it in the UI they're already looking at.
+              */}
+              <button
+                onClick={handleRunButtonClick}
+                disabled={loading}
+                className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#7c85d6] border border-[#2a2a4a] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100 select-none"
+                title="Run query (Cmd+Enter)"
+              >
+                {loading ? (
+                  "Running…"
+                ) : (
+                  <>
+                    <span>Run</span>
+                    {/* Keyboard shortcut hint in muted color */}
+                    <span className="text-[#4b5563]">⌘↵</span>
+                  </>
+                )}
+              </button>
             </div>
 
-            {/* Editor body — textarea placeholder */}
+            {/* Editor body — CodeMirror 6 mounts here */}
             {/*
-              bg-[#0a0a0f]: match the root background so the editor feels
-              integrated with the page (no "card" appearance).
-              resize-none: the textarea must not show its own resize handle;
-              the divider bar controls resizing instead.
+              overflow-hidden prevents the CodeMirror DOM from escaping the panel
+              bounds. The editor handles its own scroll via .cm-scroller.
             */}
             <div className="flex-1 overflow-hidden">
-              <textarea
-                className="w-full h-full bg-transparent resize-none outline-none text-[#ededf0] font-mono text-sm p-3 placeholder:text-[#2d3047] leading-relaxed"
-                placeholder={"-- Connect to a database and run a query\nSELECT * FROM ..."}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
+              <SqlEditor
+                onRun={handleRun}
+                onChange={handleEditorChange}
               />
             </div>
           </div>
@@ -183,11 +254,17 @@ export default function App() {
               </span>
             </div>
 
-            {/* Results body — empty state */}
-            <div className="flex-1 overflow-auto flex items-center justify-center">
-              <p className="text-[#2d3047] text-xs italic">
-                Run a query to see results
-              </p>
+            {/* Results body — DataGrid fills the remaining space */}
+            {/*
+              overflow-hidden here because DataGrid manages its own internal
+              scroll container. overflow-auto here would create a double scrollbar.
+            */}
+            <div className="flex-1 overflow-hidden">
+              <DataGrid
+                result={result}
+                error={error}
+                loading={loading}
+              />
             </div>
           </div>
 
