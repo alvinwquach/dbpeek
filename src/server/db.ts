@@ -1,124 +1,246 @@
-import knex, { type Knex } from "knex";
+// ===== FILE PURPOSE =====
+// Knex connection manager — the single source of truth for database access.
+//
+// WHY Knex:
+//   It wraps pg, mysql2, better-sqlite3, and tedious behind ONE API.
+//   We call knex.raw(userSQL) to execute user queries — Knex is NOT building
+//   queries, just managing the connection pool and normalising results across
+//   dialects. This keeps route handlers dialect-agnostic.
+//
+// WHY a shared instance:
+//   The pool is created ONCE here and shared by reference to all route handlers.
+//   This avoids the "orphaned pool" bug where the CLI and the API routes each
+//   create their own pool, consuming twice the server-side connection slots and
+//   making graceful shutdown impossible (you can only destroy a pool you hold a
+//   reference to).
+//
+// ARCHITECTURE:
+//   createKnexInstance(config) → Knex   (synchronous factory, no I/O)
+//   testConnection(db)         → Promise<void>  (verifies reachability)
+//   destroyConnection(db)      → Promise<void>  (drains the pool cleanly)
+//
+//   The CLI calls all three in sequence:
+//     const db = createKnexInstance(config);
+//     await testConnection(db);   // fail fast before starting Express
+//     ...
+//     await destroyConnection(db); // graceful shutdown on SIGINT/SIGTERM
 
-// Re-export the Knex type so route handlers can type-hint the db parameter
-// without importing knex themselves.
+import knex, { type Knex } from "knex";
+// WHY import Dialect alongside ConnectionConfig:
+//   Dialect is used as the key type in DIALECT_TO_KNEX_CLIENT's Record<Dialect, string>.
+//   Without it, the Record would fall back to Record<string, string>, losing the
+//   exhaustiveness check that causes a compile error when a new dialect is added
+//   to the union but not to the map.
+import type { ConnectionConfig, Dialect } from "../types/connection.js";
+
+// Re-export Knex type so route handlers can annotate `db` parameters without
+// importing knex themselves. Prevents every route file from depending on knex
+// directly, which would make it harder to swap the DB layer later.
 export type { Knex };
 
-// ===== CLIENT DETECTION =====
+// ===== DIALECT → KNEX CLIENT MAP =====
 
 /**
- * Derives the knex client name from the protocol prefix of a connection string.
+ * Maps the user-facing Dialect string to the internal knex client identifier.
  *
- * WHY a plain function instead of a lookup map:
- *   The detection logic uses startsWith() rather than URL parsing because SQLite
- *   connection strings are bare file paths ("./mydb.sqlite", "/var/data/db") with
- *   no protocol at all. A URL parser would throw on those inputs. The if/else chain
- *   handles the protocol cases first and falls through to SQLite for everything else.
+ * WHY a Record<Dialect, string> lookup instead of a switch/if-else chain:
+ *   The lookup table is exhaustiveness-checked by TypeScript — adding a new
+ *   Dialect to the union without updating this map is a compile-time error.
+ *   A switch/if-else chain would silently fall through to a default branch.
  *
- * WHY this returns a string and not the Dialect type from src/types/connection.ts:
- *   Knex uses its own internal client identifiers ("pg", "mysql2", "tedious",
- *   "better-sqlite3") that differ from the user-facing dialect names ("postgres",
- *   "mysql", "mssql", "sqlite"). Keeping the return type as string avoids creating
- *   a false equivalence between the two naming schemes.
+ * WHY the knex client names differ from our Dialect names:
+ *   Knex uses its own internal identifiers ("pg", "mysql2", "tedious",
+ *   "better-sqlite3") that don't match the dialect names users type at the CLI
+ *   ("postgres", "mysql", "mssql", "sqlite"). This map is the single place that
+ *   translates between the two naming schemes.
  */
-function detectClient(connectionString: string): string {
-  if (
-    connectionString.startsWith("postgres://") ||
-    connectionString.startsWith("postgresql://")
-  ) {
-    return "pg";
+const DIALECT_TO_KNEX_CLIENT: Record<Dialect, string> = {
+  postgres: "pg",
+  mysql: "mysql2",
+  mssql: "tedious",
+  sqlite: "better-sqlite3",
+};
+
+// ===== CONNECTION SHAPE HELPERS =====
+
+/**
+ * Builds the `connection` value passed to the knex config for network dialects.
+ *
+ * WHY a function instead of inlining:
+ *   The connection object shape is different for each dialect — pg accepts a
+ *   flat object, tedious requires a nested `options` sub-object for the
+ *   database name. Isolating this logic here keeps createKnexInstance() readable
+ *   and makes dialect-specific quirks easy to find and change.
+ *
+ * @param config - The fully-resolved ConnectionConfig from the CLI parser.
+ * @param dialect - The resolved dialect (same as config.dialect, passed
+ *   explicitly to help TypeScript narrow the return type per branch).
+ */
+function buildNetworkConnection(
+  config: ConnectionConfig
+): Knex.ConnectionConfig {
+  if (config.dialect === "mssql") {
+    // WHY the `options` sub-object for tedious (MSSQL driver):
+    //   The tedious client requires the database name inside `options.database`
+    //   rather than at the top level. Passing `database` at the top level is
+    //   silently ignored, causing a "Login failed" or "default database" error.
+    //   This is a tedious quirk not shared by pg or mysql2.
+    return {
+      server: config.host,
+      user: config.user,
+      password: config.password,
+      options: {
+        database: config.database,
+        port: config.port,
+        // WHY encrypt: false by default:
+        //   Local dev SQL Server instances (e.g. Docker) typically don't have a
+        //   valid TLS certificate. Setting encrypt to false avoids the
+        //   "UNABLE_TO_VERIFY_LEAF_SIGNATURE" error that would otherwise block
+        //   every local connection attempt. Users connecting to Azure SQL or a
+        //   production instance should set this to true — but that's a future
+        //   --ssl flag, not a concern for the initial localhost-first tool.
+        encrypt: false,
+        // WHY trustServerCertificate: true alongside encrypt: false:
+        //   These are two separate tedious settings. encrypt: false disables the
+        //   TLS requirement, but some SQL Server versions still attempt a handshake
+        //   and reject the connection if the certificate can't be verified.
+        //   trustServerCertificate: true suppresses that verification step,
+        //   ensuring local Docker instances with self-signed certs connect cleanly.
+        trustServerCertificate: true,
+      },
+    } as unknown as Knex.ConnectionConfig;
   }
-  if (
-    connectionString.startsWith("mysql://") ||
-    connectionString.startsWith("mysql2://")
-  ) {
-    return "mysql2";
-  }
-  if (
-    connectionString.startsWith("mssql://") ||
-    connectionString.startsWith("sqlserver://")
-  ) {
-    return "tedious";
-  }
-  // Anything without a recognised scheme is treated as a SQLite file path.
-  // This makes `npx dbpeek ./mydb.sqlite` work without any prefix.
-  return "better-sqlite3";
+
+  // pg and mysql2 share the same flat connection shape.
+  // WHY `as unknown as Knex.ConnectionConfig`:
+  //   Knex's public ConnectionConfig type doesn't declare top-level `port` —
+  //   it is only valid inside driver-specific sub-types that aren't exposed.
+  //   The cast is safe: pg and mysql2 both accept this object at runtime.
+  return {
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    user: config.user,
+    password: config.password,
+  } as unknown as Knex.ConnectionConfig;
 }
 
-// ===== CONNECTION FACTORY =====
+// ===== PUBLIC API =====
 
 /**
- * Builds a knex instance and verifies connectivity before returning it.
+ * Creates a Knex instance from a resolved ConnectionConfig.
  *
- * WHY `async` / `Promise<Knex>`:
- *   `async` is required because we `await db.raw("select 1")` to probe the
- *   connection before handing the instance back to the caller. Without the probe,
- *   a misconfigured connection string would only surface as an error on the first
- *   real query — potentially inside a route handler, producing a confusing 500
- *   response rather than a startup-time failure. Returning a Promise<Knex> rather
- *   than a Knex directly makes the async contract explicit to callers: they must
- *   await this function before using the db handle.
+ * WHY synchronous (no async/await):
+ *   knex() only validates the config and sets up the pool factory — it does NOT
+ *   open a socket. The actual TCP handshake happens lazily on the first query.
+ *   Making this function async would be misleading: a returned Promise<Knex>
+ *   would imply network I/O happened, but it wouldn't have. Callers who need
+ *   connectivity proof should call testConnection() separately.
  *
- * WHY we don't just return the knex instance synchronously:
- *   knex() itself is synchronous — it only validates config, it does not open a
- *   socket. The async work (TCP handshake, auth, TLS) happens lazily on the first
- *   query. Awaiting db.raw("select 1") here forces that work to happen at startup
- *   so we can fail fast with a clear error message instead of silently serving a
- *   broken app.
+ * WHY pool min:0, max:5:
+ *   min:0 means the pool starts empty and opens connections on demand. For a
+ *   single-user localhost tool that runs ~2 req/min, there is no reason to keep
+ *   a warm idle connection burning a server-side slot at all times.
+ *   max:5 is generous for one user — real workloads rarely exceed 1-2 concurrent
+ *   queries — but leaves headroom for schema browsing tabs that might fire a few
+ *   parallel requests.
  *
- * @param connectionString - A database URL (postgres://, mysql://, mssql://) or a
- *   SQLite file path. Passed directly to knex; not validated here.
- * @returns A connected, pool-initialised Knex instance ready for queries.
- * @throws {Error} if the database is unreachable or the credentials are rejected.
+ * @param config - Fully resolved ConnectionConfig produced by getConnectionConfig().
+ * @returns A configured Knex instance (pool not yet active; no I/O performed).
  */
-export async function createConnection(connectionString: string): Promise<Knex> {
-  const client = detectClient(connectionString);
+export function createKnexInstance(config: ConnectionConfig): Knex {
+  const client = DIALECT_TO_KNEX_CLIENT[config.dialect];
 
-  const db = knex({
+  // WHY the conditional connection shape:
+  //   better-sqlite3 is a synchronous, file-based driver. Knex requires the
+  //   connection to be `{ filename: string }` for SQLite; passing a plain object
+  //   with host/port causes a runtime crash inside the driver. All other dialects
+  //   use the network connection shape built by buildNetworkConnection().
+  const connection =
+    config.dialect === "sqlite"
+      ? { filename: config.database }
+      : buildNetworkConnection(config);
+
+  return knex({
     client,
+    connection,
 
-    // WHY the conditional connection shape:
-    //   knex accepts a raw connection string for pg, mysql2, and tedious.
-    //   better-sqlite3 is different — it is a synchronous, file-based driver
-    //   that does not use a connection string at all. knex requires the connection
-    //   to be an object with a `filename` key for SQLite; passing a bare string
-    //   causes a runtime error inside the driver.
-    connection:
-      client === "better-sqlite3"
-        ? { filename: connectionString }
-        : connectionString,
-
-    // WHY useNullAsDefault:
+    // WHY useNullAsDefault only for SQLite:
     //   SQLite does not support DEFAULT expressions for most column types, so knex
     //   substitutes NULL when a value is omitted in an INSERT. Without this flag,
-    //   knex emits a warning on every insert. Setting it to true only for SQLite
-    //   (where it is needed) avoids suppressing the warning for other dialects
-    //   where it would mask a real misconfiguration.
-    useNullAsDefault: client === "better-sqlite3",
+    //   knex emits a noisy warning on every insert. We enable it only for SQLite
+    //   because the other drivers handle DEFAULT correctly and we don't want to
+    //   suppress a useful warning for them.
+    useNullAsDefault: config.dialect === "sqlite",
 
     pool: {
-      // WHY min: 1:
-      //   Keeps one idle connection alive so the first real query doesn't pay
-      //   the TCP handshake + auth cost. For SQLite this has no practical effect
-      //   (file open is microseconds), but it is harmless and keeps the config
-      //   consistent across dialects.
-      min: 1,
-
-      // WHY max: 10:
-      //   A local dev tool is unlikely to run more than a handful of concurrent
-      //   queries. Most database servers default to 100 max connections; staying
-      //   at 10 avoids exhausting server-side connection limits in environments
-      //   where dbpeek runs alongside other tools sharing the same database.
-      max: 10,
+      min: 0,
+      max: 5,
     },
   });
+}
 
-  // WHY db.raw("select 1"):
-  //   The lightest query that works across all four supported dialects without
-  //   touching any user table. Forces the pool to open a real connection and run
-  //   the auth handshake so we surface credential or network errors here at
-  //   startup, not later inside a route handler.
-  await db.raw("select 1");
+/**
+ * Probes the database to confirm it is reachable and credentials are accepted.
+ *
+ * WHY a separate function from createKnexInstance:
+ *   Separating creation from validation lets callers (and tests) mock one
+ *   without the other. The CLI needs to call both; tests that only want to
+ *   verify pool configuration can call createKnexInstance() without triggering
+ *   real network I/O.
+ *
+ * WHY `SELECT 1` as the probe query:
+ *   It is the lightest query that works across all four supported dialects
+ *   without touching any user table. It forces the pool to open a real TCP
+ *   connection and run the auth handshake, surfacing credential or network
+ *   errors at startup rather than inside a route handler.
+ *
+ * WHY we re-throw with a prefixed message:
+ *   The raw driver errors (e.g. "ECONNREFUSED", "password authentication failed
+ *   for user "alice"") are terse and don't mention dbpeek context. Wrapping them
+ *   gives the user a clear starting point: "Cannot connect to postgres database
+ *   mydb: ECONNREFUSED".
+ *
+ * @param db - A Knex instance created by createKnexInstance().
+ * @param config - The config used to build `db`, used only for the error message.
+ * @throws {Error} with a human-friendly message when the DB is unreachable or
+ *   credentials are rejected.
+ */
+export async function testConnection(
+  db: Knex,
+  config: ConnectionConfig
+): Promise<void> {
+  try {
+    await db.raw("SELECT 1");
+  } catch (err: unknown) {
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Cannot connect to ${config.dialect} database "${config.database}" ` +
+        `on ${config.host}:${config.port}: ${cause}`
+    );
+  }
+}
 
-  return db;
+/**
+ * Drains the connection pool and releases all database sockets.
+ *
+ * WHY this must be called on shutdown:
+ *   knex uses a pool (tarn.js under the hood) that keeps idle connections alive.
+ *   If the process exits without destroying the pool, those server-side
+ *   connections remain in IDLE state until the database server times them out
+ *   (typically 8h for Postgres, 28800s for MySQL). On a shared database this
+ *   wastes connection slots. Calling destroy() sends the proper TCP FIN and
+ *   lets the server reclaim the slot immediately.
+ *
+ * WHY async:
+ *   db.destroy() returns a Promise that resolves only after all connections
+ *   have been closed. Awaiting it ensures the process doesn't exit while sockets
+ *   are still in CLOSE_WAIT. Without await, a `process.exit()` immediately after
+ *   would leave the pool in a partially-drained state.
+ *
+ * @param db - The Knex instance to destroy. Safe to call even if the pool is
+ *   already empty (knex handles the no-op case internally).
+ */
+export async function destroyConnection(db: Knex): Promise<void> {
+  await db.destroy();
 }
