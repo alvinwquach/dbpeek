@@ -15,31 +15,30 @@
 
 import type { Express } from "express";
 import type { Knex } from "../db.js";
-import type { PermissionMode } from "../../types/connection.js";
+import type { ConnectionConfig } from "../../types/connection.js";
 import { createQueryRouter } from "./query.js";
+import { createStatusRouter } from "./status.js";
 
 /**
  * Mounts all API route handlers onto the Express app.
  *
- * WHY `db` and `permissionMode` are parameters rather than module-level globals:
- *   Route handlers are closures — they capture `db` and `permissionMode` at
- *   registration time. Passing them as parameters (rather than importing them
- *   from a global module) means the same route file can be used in tests with a
- *   mock Knex instance and a different permission level, without any module-level
- *   state to reset between test cases.
+ * WHY `config` and `db` are parameters rather than module-level globals:
+ *   Route handlers are closures — they capture `config` and `db` at registration
+ *   time. Passing them as parameters (rather than importing them from a global
+ *   module) means the same route file can be used in tests with a mock
+ *   ConnectionConfig and mock Knex instance, without any module-level state to
+ *   reset between test cases.
  *
- * WHY permissionMode is threaded all the way to createQueryRouter:
- *   The query route validates every SQL string against the mode set at CLI
- *   launch. Passing the mode through registerRoutes (rather than reading it
- *   from a shared variable inside the handler) keeps the data flow explicit
- *   and avoids a hidden global dependency. It also means the mode is captured
- *   in the closure ONCE — there is no API path that mutates it at runtime,
- *   which is the core of the security guarantee in permissions.ts.
+ * WHY config (not just permissionMode) is threaded through:
+ *   The status route needs access to connection metadata (dialect, host, port,
+ *   database, user) to expose them in the API response. The query route needs
+ *   the permissionMode. Passing the full config means each route extracts only
+ *   the fields it needs — no route has access to the password.
  */
 export function registerRoutes(
   app: Express,
-  db: Knex,
-  permissionMode: PermissionMode
+  config: ConnectionConfig,
+  db: Knex
 ): void {
   // ── Health check ───────────────────────────────────────────────────────────
   //
@@ -64,7 +63,14 @@ export function registerRoutes(
   //   query namespace later (e.g. POST /api/query/explain) without changing
   //   the registration call. It also keeps the security-critical query handler
   //   isolated to a dedicated module file.
-  app.use("/api/query", createQueryRouter(db, permissionMode));
+  app.use("/api/query", createQueryRouter(db, config.permissionMode));
+
+  // ── Status ─────────────────────────────────────────────────────────────────
+  //
+  // GET /api/status exposes connection metadata (dialect, host, port, database,
+  // user, mode) and connectivity status. The password is never included in the
+  // response — it exists only in the Knex pool config in server memory.
+  app.use("/api/status", createStatusRouter(config, db));
 
   // ── Future routes ──────────────────────────────────────────────────────────
   // Each group will be extracted to its own file and mounted here, e.g.:

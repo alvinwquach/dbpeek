@@ -107,21 +107,21 @@ const localhostCors = cors({
  *   or http.request. createServer() is the async wrapper that wires up the real
  *   Knex connection for production use.
  *
- * WHY `permissionMode` is a separate parameter from config:
- *   The rest of `config` (host, port, database, credentials) is only needed by
- *   the DB layer. Passing the full ConnectionConfig to the Express layer would
- *   give route handlers access to the raw database password, which violates the
- *   principle of least privilege. Passing only `permissionMode` gives the query
- *   route exactly the information it needs to enforce SQL permissions without
- *   exposing credentials.
+ * WHY `config` is passed to the Express layer:
+ *   The status route needs access to connection metadata (dialect, host, port,
+ *   database, user) to expose them in the API response. While the password is
+ *   stored in Knex's internal pool config and never exposed to route handlers,
+ *   routes need the other fields to identify the connection to the UI. The
+ *   route layer receives the full config but only exposes safe fields.
  *
+ * @param config - The full ConnectionConfig. Route handlers extract only the
+ *   non-sensitive fields (dialect, host, port, database, user, permissionMode)
+ *   for the API response. The password is NOT passed to route handlers.
  * @param db - An initialised Knex instance (pool created, connectivity not yet
  *   verified — that's testConnection's job).
- * @param permissionMode - SQL permission level for this session, forwarded to
- *   route handlers so they can enforce the allowlist.
  * @returns A configured Express app, ready for app.listen().
  */
-export function createApp(db: Knex, permissionMode: PermissionMode): Express {
+export function createApp(config: ConnectionConfig, db: Knex): Express {
   const app = express();
 
   // ── Middleware stack ────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ export function createApp(db: Knex, permissionMode: PermissionMode): Express {
   app.use(express.static(clientDistPath));
 
   // ── API routes ─────────────────────────────────────────────────────────────
-  registerRoutes(app, db, permissionMode);
+  registerRoutes(app, config, db);
 
   // ── SPA fallback ───────────────────────────────────────────────────────────
 
@@ -187,7 +187,7 @@ export function createApp(db: Knex, permissionMode: PermissionMode): Express {
 // ===== SERVER FACTORY (production entry point) =====
 
 /**
- * Creates a Knex instance and returns both the Express app and the db handle.
+ * Creates the Express app and returns both the app and the db handle.
  *
  * WHY return `{ app, db }` instead of just `app`:
  *   The CLI needs the `db` reference to call destroyConnection() on SIGINT/SIGTERM.
@@ -204,12 +204,13 @@ export function createApp(db: Knex, permissionMode: PermissionMode): Express {
  *   instance don't need to mock the probe query.
  *
  * @param config - Fully resolved ConnectionConfig from the CLI parser.
+ * @param db - An initialised Knex instance.
  * @returns `{ app, db }` — the Express app and the Knex instance (for shutdown).
  */
 export function createServer(
   config: ConnectionConfig,
   db: Knex
 ): { app: Express; db: Knex } {
-  const app = createApp(db, config.permissionMode);
+  const app = createApp(config, db);
   return { app, db };
 }
