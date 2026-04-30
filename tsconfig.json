@@ -1,0 +1,140 @@
+{
+  "compilerOptions": {
+    // ── Target & Module ────────────────────────────────────────────────────────
+
+    // "target" sets the JavaScript version emitted by tsc when it compiles
+    // without a bundler. We aim for ES2022 because that's what Node 18 LTS
+    // supports natively, giving us top-level await, class fields, and Error.cause
+    // without any down-compilation overhead.
+    "target": "ES2022",
+
+    // "module" controls how import/export statements are compiled.
+    // "NodeNext" is the forward-looking alias for the latest Node module mode:
+    // it respects package.json "exports", enforces .js extensions in relative
+    // imports for ESM, and supports import attributes (assert { type: "json" }).
+    // It supersedes "Node16" and will continue to track future Node semantics.
+    "module": "NodeNext",
+
+    // "moduleResolution" must match "module". "NodeNext" applies the same
+    // dual CJS/ESM resolution algorithm as "Node16" but stays in sync with
+    // TypeScript's latest understanding of Node's resolver.
+    "moduleResolution": "NodeNext",
+
+    // ── Output ─────────────────────────────────────────────────────────────────
+
+    // "outDir" is where tsc writes compiled files when invoked directly.
+    // In practice, tsup drives the build and ignores this field, but it's
+    // required when running `tsc --noEmit` for type-checking.
+    "outDir": "dist",
+
+    // "rootDir" is intentionally omitted so that tsc infers the common root of
+    // both src/ and tests/. Specifying "src" would cause tsc to reject test
+    // files (which live outside src/) when --noEmit is used for type-checking.
+    // tsup specifies its own entry points, so the absence of rootDir here has
+    // no effect on the build output.
+
+    // "declaration" emits .d.ts files alongside the JS output so that
+    // consumers who import dbpeek programmatically get full type information.
+    "declaration": true,
+
+    // "declarationMap" emits .d.ts.map files that link type definitions back
+    // to the original TypeScript source. Enables "Go to definition" to open
+    // .ts files instead of the generated .d.ts in editors.
+    "declarationMap": true,
+
+    // "sourceMap" emits .js.map files so that stack traces and debugger
+    // breakpoints reference the original TypeScript source lines.
+    "sourceMap": true,
+
+    // ── Strict type checking ───────────────────────────────────────────────────
+
+    // "strict" is a single flag that enables the full suite of strictness checks:
+    //   strictNullChecks     — null/undefined cannot be assigned to other types
+    //   strictFunctionTypes  — function parameter types are checked contravariantly
+    //   strictBindCallApply  — bind/call/apply are properly typed
+    //   strictPropertyInitialization — class properties must be initialised in the constructor
+    //   noImplicitAny        — variables cannot silently become `any`
+    //   noImplicitThis       — `this` inside functions must have an explicit type
+    //   alwaysStrict         — emits "use strict" in every output file
+    // Enabling all of these from day one prevents an entire class of runtime bugs.
+    "strict": true,
+
+    // "noUncheckedIndexedAccess" makes array and object index access return
+    // `T | undefined` instead of `T`. Forces you to handle the "index out of
+    // bounds" case explicitly — especially important when iterating over rows
+    // returned from a database query.
+    "noUncheckedIndexedAccess": true,
+
+    // "noImplicitOverride" requires subclasses to use the `override` keyword
+    // when shadowing a base-class method. Prevents accidental overrides when
+    // a base-class method is renamed or removed.
+    "noImplicitOverride": true,
+
+    // "noFallthroughCasesInSwitch" errors on switch cases that fall through
+    // to the next case without an explicit `break` or `return`. Almost always
+    // a bug rather than intentional.
+    "noFallthroughCasesInSwitch": true,
+
+    // "exactOptionalPropertyTypes" distinguishes between `{ x?: string }` (x
+    // may be absent) and `{ x: string | undefined }` (x is present but
+    // undefined). The default TypeScript behaviour treats these identically,
+    // which masks real bugs in database row mapping code.
+    "exactOptionalPropertyTypes": true,
+
+    // ── Interop ────────────────────────────────────────────────────────────────
+
+    // "esModuleInterop" generates helper code so that CJS modules (the vast
+    // majority of npm packages) can be imported with `import foo from 'foo'`
+    // instead of `import * as foo from 'foo'`. Required for packages like
+    // commander and express that don't ship native ESM.
+    "esModuleInterop": true,
+
+    // "allowSyntheticDefaultImports" is implied by esModuleInterop and allows
+    // the simpler default-import syntax in type checking (even without emit
+    // helpers). Listed explicitly for clarity.
+    "allowSyntheticDefaultImports": true,
+
+    // "forceConsistentCasingInFileNames" errors if a file is imported with a
+    // different casing than it exists on disk (e.g. `import './Foo'` when the
+    // file is `foo.ts`). macOS HFS+ is case-insensitive, so this catch is
+    // critical for code that also runs on Linux CI.
+    "forceConsistentCasingInFileNames": true,
+
+    // "resolveJsonModule" allows importing .json files as typed modules
+    // (e.g. `import pkg from '../package.json'`). Useful for reading the
+    // package version at runtime to display in `dbpeek --version`.
+    "resolveJsonModule": true,
+
+    // "skipLibCheck" skips type-checking inside node_modules .d.ts files.
+    // Some packages ship declaration files with minor errors that are not
+    // our problem to fix; this keeps CI green without hiding our own errors.
+    "skipLibCheck": true,
+
+    // ── Paths ─────────────────────────────────────────────────────────────────
+
+    // "paths" sets up module aliases without "baseUrl".
+    // As of TypeScript 4.1, baseUrl is no longer required alongside paths and
+    // is deprecated as of TypeScript 5.5 (removed in 7.0). Path values are
+    // resolved relative to the tsconfig.json location when baseUrl is absent.
+    // `import { foo } from '@dbpeek/server'` resolves to src/server/index.ts
+    // without a pile of ../../ relative paths.
+    "paths": {
+      "@dbpeek/server": ["./src/server/index.ts"],
+      "@dbpeek/server/*": ["./src/server/*"]
+    }
+  },
+
+  // "include" restricts compilation to our source and test trees.
+  // Config files (*.config.ts) live at the root and are excluded intentionally
+  // — tsup and Vite have their own type context for those.
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+
+  "exclude": [
+    // node_modules is always excluded; listing it explicitly avoids any
+    // accidental inclusion via a path alias.
+    "node_modules",
+
+    // dist/ holds compiled output; we never want tsc to re-compile it.
+    "dist"
+  ]
+}
