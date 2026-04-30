@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!--
+  ARCHITECTURE: This is the single HTML shell for the dbpeek SPA.
+
+  Vite uses this file as its entry point (configured via `root: "src/client"` in
+  vite.config.ts). During build, Vite injects hashed asset links for the compiled
+  JS and CSS bundles automatically — we only need the <script type="module"> tag
+  pointing at main.tsx; Vite replaces it with the production bundle path.
+
+  Express serves the compiled dist/client/index.html for all non-/api/* routes
+  (the SPA fallback in src/server/index.ts), enabling client-side navigation
+  without 404s on refresh.
+-->
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>dbpeek</title>
+  </head>
+  <!--
+    h-full on body propagates the full viewport height into the React tree
+    so that the three-panel layout (sidebar + editor/results + status bar)
+    can use h-screen / flex-col to fill exactly 100vh with no scrollbar.
+  -->
+  <body class="h-full">
+    <div id="root" class="h-full"></div>
+    <!--
+      type="module" is required for Vite's HMR and ES module graph to work.
+      In production this is replaced by the hashed bundle script tag.
+    -->
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

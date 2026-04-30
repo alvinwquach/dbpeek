@@ -1,0 +1,80 @@
+{
+  // ── tsconfig.client.json ──────────────────────────────────────────────────
+  // Separate TypeScript config for src/client/ (React/browser code).
+  //
+  // WHY SEPARATE FROM THE ROOT tsconfig.json:
+  //   The root tsconfig uses `moduleResolution: "NodeNext"` which is correct
+  //   for Node.js (CLI + Express server) but breaks browser code:
+  //   - NodeNext requires explicit .js extensions on relative imports
+  //   - React/Vite conventions use extension-less imports (./App, not ./App.js)
+  //   - "bundler" moduleResolution is the correct setting for Vite-bundled code
+  //
+  // HOW IT WORKS:
+  //   VS Code resolves tsconfig.json by walking UP the directory tree from the
+  //   open file. Files inside src/client/ find this tsconfig first, so they get
+  //   browser-correct settings (jsx, bundler resolution) without affecting the
+  //   server/CLI type checking done by the root tsconfig.
+  //
+  //   Vite uses esbuild to strip types (it does NOT run tsc during builds), so
+  //   this file is primarily for IDE IntelliSense and `npm run typecheck:client`.
+  "compilerOptions": {
+    // ── Target & Module ──────────────────────────────────────────────────────
+
+    // ES2022 matches the root config and is supported by all modern browsers
+    // targeted by Vite's build (evergreen browser default).
+    "target": "ES2022",
+
+    // ESNext + bundler: the correct pairing for code consumed by a bundler
+    // (Vite/esbuild). "bundler" moduleResolution understands package.json
+    // exports, allows extension-free imports, and does not enforce Node ESM
+    // extension rules. It was introduced in TypeScript 5.0 specifically for
+    // bundler-based workflows.
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    // ── JSX ─────────────────────────────────────────────────────────────────
+
+    // "react-jsx" emits `import { jsx as _jsx } from "react/jsx-runtime"`.
+    // This is the modern JSX transform (React 17+) — no need to import React
+    // in every file that uses JSX.
+    "jsx": "react-jsx",
+
+    // ── Output ──────────────────────────────────────────────────────────────
+
+    // noEmit: this config is for IDE and typecheck only. Vite/esbuild do the
+    // actual compilation during `npm run build:client`.
+    "noEmit": true,
+
+    // ── Strict type checking ─────────────────────────────────────────────────
+
+    // Mirror the root tsconfig strict settings so that client code is held to
+    // the same standard as server code.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+
+    // ── Interop ─────────────────────────────────────────────────────────────
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+
+    // skipLibCheck: avoids errors in node_modules .d.ts files that we don't
+    // control (e.g. minor issues in @radix-ui or zustand type declarations).
+    "skipLibCheck": true
+  },
+
+  // Include all TS/TSX files under src/client/. Patterns are relative to the
+  // location of THIS tsconfig.json (src/client/), not the project root.
+  "include": [
+    "./**/*.ts",
+    "./**/*.tsx"
+  ],
+
+  "exclude": [
+    "node_modules"
+  ]
+}

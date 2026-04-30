@@ -19,7 +19,6 @@
 
 import http from "http";
 import { Command, InvalidArgumentError } from "commander";
-import open from "open";
 
 import {
   type Dialect,
@@ -387,13 +386,25 @@ async function main(): Promise<void> {
   console.log(`Server running at http://localhost:${boundPort}`);
 
   // ── Step 7: Open browser ───────────────────────────────────────────────────
-  // WHY fire-and-forget (no await):
-  //   open() spawns an OS process and resolves when the process has been
-  //   started, not when the browser has finished loading. Awaiting it would
-  //   only delay the SIGINT handler registration below by a few milliseconds
-  //   with no practical benefit. If open() fails (headless environment, CI),
-  //   we log a hint instead of crashing.
-  open(`http://localhost:${boundPort}`).catch(() => {
+  // WHY dynamic import instead of a static top-level import:
+  //   'open' is an ESM-only package — it ships no CJS export. A static import
+  //   compiles to require('open') in tsup's CJS output, which Node.js refuses
+  //   with ERR_REQUIRE_ESM (or silently produces a broken namespace object on
+  //   newer Node, causing "(0, import_open.default) is not a function").
+  //   Dynamic import() is preserved as-is by esbuild when the package is
+  //   external, so Node.js routes it through its native ESM loader at runtime,
+  //   which correctly resolves pure-ESM packages from a CJS module.
+  //
+  // WHY await the import() but NOT await open.default():
+  //   The import() itself resolves in milliseconds (disk read + module parse).
+  //   Awaiting it ensures the module namespace is available before the call.
+  //   open.default() in turn spawns an OS subprocess and resolves once it has
+  //   started — not when the browser finishes loading. Awaiting that would only
+  //   delay SIGINT handler registration (step 8) by subprocess-launch latency
+  //   with no benefit. The .catch() handles headless / CI environments where
+  //   no browser is available.
+  const open = await import("open");
+  open.default(`http://localhost:${boundPort}`).catch(() => {
     console.log(`Open your browser to http://localhost:${boundPort}`);
   });
 
