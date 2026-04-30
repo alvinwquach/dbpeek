@@ -18,6 +18,7 @@ import type { Knex } from "../db.js";
 import type { ConnectionConfig } from "../../types/connection.js";
 import { createQueryRouter } from "./query.js";
 import { createStatusRouter } from "./status.js";
+import { createSchemaRouter } from "./schema.js";
 
 /**
  * Mounts all API route handlers onto the Express app.
@@ -72,8 +73,13 @@ export function registerRoutes(
   // response — it exists only in the Knex pool config in server memory.
   app.use("/api/status", createStatusRouter(config, db));
 
-  // ── Future routes ──────────────────────────────────────────────────────────
-  // Each group will be extracted to its own file and mounted here, e.g.:
-  //   app.use("/api/schema", schemaRouter(db));
-  //   app.use("/api/tables", tablesRouter(db));
+  // ── Schema introspection ───────────────────────────────────────────────────
+  //
+  // GET /api/schema           → list of tables with estimated row counts
+  // GET /api/schema/:table    → columns, types, PK/FK/index metadata
+  //
+  // Powers the UI's schema tree and SQL autocomplete. The router needs the
+  // full config because it dispatches per dialect (Postgres / MySQL / SQLite
+  // / MSSQL each query their own metadata catalogs).
+  app.use("/api/schema", createSchemaRouter(config, db));
 }
