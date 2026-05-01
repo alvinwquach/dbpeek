@@ -10,35 +10,50 @@
  * Clicking any column opens a ColumnStats popover anchored to the clicked
  * row (rendered as a sibling component below).
  *
+ * Right-clicking a table row opens a context menu with a "Pin to top" option.
+ * Pinned tables are hoisted into a dedicated "Pinned" section above the main
+ * alphabetical list so the developer can quickly revisit the 5-10 tables that
+ * matter most in a session without scrolling a 200-table list repeatedly.
+ *
  * ===== ARCHITECTURE =====
  *
  *   SchemaTree (this file)
- *     ├─ SearchInput          — controlled input bound to local searchTerm
+ *     ├─ SearchInput              — controlled input bound to local searchTerm
+ *     ├─ PinnedSection            — pinned tables hoisted above the main list
+ *     │    └─ TableRow (pinned)   — same row; star icon replaces expand chevron
  *     ├─ TableRow (per table)
- *     │    ├─ collapse arrow   — toggles expandedTables Set
- *     │    ├─ table icon       — visual affordance only
- *     │    ├─ name             — bolds matching substring during search
- *     │    ├─ row-count badge  — pulled from store.schemaRowCounts
- *     │    └─ preview button   — fires onPreview('SELECT * FROM <t> LIMIT 100')
+ *     │    ├─ collapse arrow      — toggles expandedTables Set
+ *     │    ├─ table icon          — visual affordance only
+ *     │    ├─ name                — bolds matching substring during search
+ *     │    ├─ row-count badge     — pulled from store.schemaRowCounts
+ *     │    └─ preview button      — fires onPreview('SELECT * FROM <t> LIMIT 100')
  *     └─ ColumnRow (per column when its table is expanded)
- *          ├─ type badge       — short type label (varchar, int, timestamp, ...)
+ *          ├─ type badge          — short type label (varchar, int, timestamp, ...)
  *          ├─ column name
  *          └─ PK / FK / IX badges
  *          (clicking the row opens a ColumnStats popover for that column)
  *
- *   The popover itself is owned by SchemaTree (a single instance, repositioned
- *   when the user picks a different column) so we never have stale popovers
- *   stacked on top of each other.
+ *   ContextMenu — a fixed-positioned single-item menu triggered by right-click
+ *     on any TableRow. Only one can be open at a time; clicking outside or
+ *     pressing Escape closes it. Rendered as a sibling at SchemaTree root so
+ *     it escapes the sidebar's overflow-y-auto clip boundary.
+ *
+ *   The stats popover is also a sibling (same reason — avoids clipping).
  *
  * ===== STATE MODEL =====
  *
  *   searchTerm: string                       — controlled input
  *   expandedTables: Set<string>              — which tables are open
  *   selectedColumn: { table, column, rect }  — currently inspected column
+ *   contextMenu: { table, x, y }             — currently open context menu
  *
- *   All three are LOCAL state. Persisting them to Zustand would couple the
- *   sidebar to a feature that no other component reads — local state is the
- *   right scope for a self-contained widget.
+ *   pinnedTables: Set<string>  →  lives in Zustand (store.pinnedTables)
+ *     WHY Zustand for pins but local for the rest:
+ *       Pins are the only state that a future "jump to pinned" shortcut or
+ *       "pinned" indicator in another panel would need to read. Local state
+ *       would force prop-drilling through App.tsx. The others are self-
+ *       contained sidebar concerns that nothing outside this component cares
+ *       about.
  *
  * ===== SEARCH SEMANTICS =====
  *
@@ -48,6 +63,10 @@
  *   search is case-insensitive substring matching — the right default for
  *   "find anything containing this token" without learning regex syntax.
  *
+ *   The Pinned section shows pinned tables that pass the current search filter,
+ *   keeping the view coherent: if you search for "user" you only see user-
+ *   related tables in both sections, not unrelated pinned tables.
+ *
  * ===== PROPS =====
  *
  *   onPreview: (sql: string) => void
@@ -56,7 +75,7 @@
  *     query-execution machinery — SchemaTree just emits a SQL string.
  */
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useAppStore } from "../../stores/app";
 import type { ColumnInfo } from "../../hooks/useSchema";
 import { ColumnStats } from "./ColumnStats";
@@ -83,6 +102,23 @@ interface ColumnAnchor {
    *   around. Snapshotting freezes the anchor.
    */
   rect: DOMRect;
+}
+
+/**
+ * Position + target for the right-click context menu on a table row.
+ *
+ * WHY store viewport x/y rather than a DOMRect:
+ *   The context menu is fixed-positioned at the cursor location — we want it
+ *   at the pointer tip, not at the row's bounding box edge. viewport coords
+ *   (clientX / clientY) drop the menu exactly where the user right-clicked.
+ */
+interface ContextMenuState {
+  /** Table the user right-clicked on. */
+  table: string;
+  /** Horizontal viewport position of the right-click cursor. */
+  x: number;
+  /** Vertical viewport position of the right-click cursor. */
+  y: number;
 }
 
 /** Props for the top-level SchemaTree component. */
@@ -321,6 +357,35 @@ function SearchIcon() {
   );
 }
 
+/**
+ * Filled-star icon used next to pinned tables. The fill signals "pinned" state
+ * clearly without relying on color alone — screen-reader users also get the
+ * aria-label "Unpin table".
+ *
+ * WHY a star and not a pin/thumbtack:
+ *   "Star to favorite" is the dominant mental model in developer tooling
+ *   (GitHub stars, VS Code pinned tabs use filled icons). A thumbtack is
+ *   also common, but a 12 px thumbtack is difficult to read; a star reads
+ *   clearly at that size.
+ */
+function StarFilledIcon() {
+  return (
+    <svg
+      className="w-3 h-3 shrink-0"
+      viewBox="0 0 12 12"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      {/*
+        A five-pointed star drawn with a single polygon.
+        Points calculated for a 12×12 viewport, center at (6,6), outer-
+        radius 5, inner-radius 2.
+      */}
+      <polygon points="6,1 7.545,4.134 11,4.635 8.5,7.072 9.09,10.511 6,8.884 2.91,10.511 3.5,7.072 1,4.635 4.455,4.134" />
+    </svg>
+  );
+}
+
 // ===== MAIN COMPONENT =====
 
 /**
@@ -343,6 +408,14 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
   const schemaRowCounts = useAppStore((s) => s.schemaRowCounts);
   const schemaLoading = useAppStore((s) => s.schemaLoading);
   const schemaError = useAppStore((s) => s.schemaError);
+
+  // ── Pin state from store ───────────────────────────────────────────────────
+  // Selectors are stable references — Zustand only re-renders this component
+  // when pinnedTables itself changes (i.e. on pin/unpin), not on every
+  // unrelated store mutation.
+  const pinnedTables = useAppStore((s) => s.pinnedTables);
+  const pinTable = useAppStore((s) => s.pinTable);
+  const unpinTable = useAppStore((s) => s.unpinTable);
 
   // ── Local state ────────────────────────────────────────────────────────────
 
@@ -378,6 +451,17 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
    */
   const [ddlTable, setDdlTable] = useState<string | null>(null);
 
+  /**
+   * Context menu state — the table being targeted and the cursor position.
+   * Null when no context menu is open.
+   *
+   * WHY local and not in Zustand:
+   *   The context menu is an ephemeral, per-sidebar interaction. No other
+   *   component ever needs to know whether a context menu is open. Local state
+   *   keeps this isolated to where it's used.
+   */
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+
   // ── Derived: filtered table list ──────────────────────────────────────────
   //
   // WHY useMemo on (schemaMap, schemaColumns, searchTerm):
@@ -393,6 +477,43 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
   //     - tables matched only by COLUMN are flagged autoExpand=true so the
   //       matching column is visible without an extra click.
 
+  /**
+   * Helper: given a table name, determines whether it should appear in the
+   * current search results and what its autoExpand state should be.
+   *
+   * Factored out of the two useMemo blocks below (filteredTables and
+   * filteredPinnedTables) so the filter logic lives in exactly one place.
+   * Returns null when the table should be hidden.
+   */
+  const buildTableEntry = useCallback(
+    (name: string, cols: ColumnInfo[], trimmed: string) => {
+      const tableMatch = matchesSearch(name, trimmed);
+      const columnMatch =
+        trimmed !== "" && cols.some((c) => matchesSearch(c.name, trimmed));
+
+      if (trimmed !== "" && !tableMatch && !columnMatch) return null;
+
+      return {
+        name,
+        columns: cols,
+        autoExpand: trimmed !== "" && columnMatch && !tableMatch,
+      };
+    },
+    []
+  );
+
+  /**
+   * Filtered + sorted list of ALL tables (including pinned ones) for the main
+   * section. Pinned tables are excluded here — they're rendered in their own
+   * PinnedSection above this list to avoid showing them twice.
+   *
+   * WHY useMemo on (schemaMap, schemaColumns, searchTerm, pinnedTables):
+   *   Filtering walks every table and every column in the database. With a
+   *   500-table schema this is non-trivial work; recomputing on every render
+   *   (including cursor-position changes elsewhere via store updates) would
+   *   noticeably slow down the sidebar. Memoizing pins the work to actual
+   *   schema or search-term changes.
+   */
   const filteredTables = useMemo(() => {
     if (schemaMap == null || schemaColumns == null) return [];
 
@@ -402,30 +523,32 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
     const trimmed = searchTerm.trim();
 
     return tableNames
+      .filter((name) => !pinnedTables.has(name)) // pinned tables rendered separately
+      .map((name) => buildTableEntry(name, schemaColumns[name] ?? [], trimmed))
+      .filter((t): t is { name: string; columns: ColumnInfo[]; autoExpand: boolean } => t != null);
+  }, [schemaMap, schemaColumns, searchTerm, pinnedTables, buildTableEntry]);
+
+  /**
+   * Filtered + sorted list of ONLY pinned tables for the Pinned section.
+   * Sorted alphabetically (same as the main list) for visual consistency.
+   * Respects the current search filter — if you search for "user" and a
+   * pinned table doesn't match, it hides from the pinned section too.
+   */
+  const filteredPinnedTables = useMemo(() => {
+    if (schemaMap == null || schemaColumns == null) return [];
+
+    const trimmed = searchTerm.trim();
+
+    return Array.from(pinnedTables)
+      .sort((a, b) => a.localeCompare(b))
       .map((name) => {
-        const cols = schemaColumns[name] ?? [];
-        const tableMatch = matchesSearch(name, trimmed);
-        // For column matching we OR-reduce. Empty needle → matches everything,
-        // which is the correct behavior when there's no search at all.
-        const columnMatch =
-          trimmed !== "" &&
-          cols.some((c) => matchesSearch(c.name, trimmed));
-
-        // Hide tables with neither name nor column match (only when searching).
-        if (trimmed !== "" && !tableMatch && !columnMatch) {
-          return null;
-        }
-
-        return {
-          name,
-          columns: cols,
-          // When a column matched but the table name didn't, force-expand so
-          // the matching column shows without an extra click.
-          autoExpand: trimmed !== "" && columnMatch && !tableMatch,
-        };
+        // Table might have been dropped from the DB since it was pinned;
+        // skip it gracefully rather than crashing.
+        if (!(name in schemaMap)) return null;
+        return buildTableEntry(name, schemaColumns[name] ?? [], trimmed);
       })
       .filter((t): t is { name: string; columns: ColumnInfo[]; autoExpand: boolean } => t != null);
-  }, [schemaMap, schemaColumns, searchTerm]);
+  }, [schemaMap, schemaColumns, searchTerm, pinnedTables, buildTableEntry]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -517,6 +640,65 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
   /** Closes the popover. Passed to ColumnStats so its dismiss button works. */
   const closePopover = useCallback(() => setSelectedColumn(null), []);
 
+  // ── Context menu handlers ──────────────────────────────────────────────────
+
+  /**
+   * Opens the context menu at the cursor position.
+   *
+   * WHY preventDefault: suppresses the browser's native context menu so ours
+   *   appears instead. Without it both menus would stack.
+   *
+   * WHY stopPropagation: the table row div has an onClick that toggles expand;
+   *   a right-click should NOT also toggle the row.
+   */
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, tableName: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setContextMenu({ table: tableName, x: e.clientX, y: e.clientY });
+    },
+    []
+  );
+
+  /** Closes the context menu without taking any action. */
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  /**
+   * Handles the "Pin to top" / "Unpin" menu item click.
+   *
+   * Toggles the pin state for the targeted table, then immediately closes
+   * the menu so the user sees the sidebar update in one motion.
+   */
+  const handlePinToggle = useCallback(
+    (tableName: string) => {
+      if (pinnedTables.has(tableName)) {
+        unpinTable(tableName);
+      } else {
+        pinTable(tableName);
+      }
+      closeContextMenu();
+    },
+    [pinnedTables, pinTable, unpinTable, closeContextMenu]
+  );
+
+  /**
+   * Closes the context menu when the user clicks the filled-star (unpin)
+   * button directly on a pinned table row.
+   *
+   * WHY a separate handler instead of reusing handlePinToggle:
+   *   The star button emits a mouse event; we need stopPropagation so the
+   *   click doesn't also toggle the row's expand state. The toggle itself is
+   *   the same one action — `unpinTable(tableName)` — just triggered via a
+   *   different UI surface.
+   */
+  const handleUnpinClick = useCallback(
+    (e: React.MouseEvent, tableName: string) => {
+      e.stopPropagation();
+      unpinTable(tableName);
+    },
+    [unpinTable]
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -574,6 +756,54 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
             </div>
           )}
 
+        {/* ===== PINNED SECTION ===== */}
+        {/*
+          Rendered above the main list whenever at least one table is pinned
+          AND passes the current search filter. The section header ("Pinned")
+          uses the same visual language as the outer "Schema" header — small
+          caps, wide tracking, muted color — so the two sections feel like
+          siblings inside a single coherent sidebar.
+        */}
+        {filteredPinnedTables.length > 0 && (
+          <>
+            <div className="flex items-center px-3 pt-2 pb-1 border-b border-[#1f2033]">
+              <span className="text-[9px] font-semibold uppercase tracking-widest text-[#f59e0b] opacity-70">
+                Pinned
+              </span>
+            </div>
+            <ul className="py-1" role="tree" aria-label="Pinned tables">
+              {filteredPinnedTables.map(({ name, columns, autoExpand }) => {
+                const isExpanded = autoExpand || expandedTables.has(name);
+                const rowCount = schemaRowCounts?.[name];
+                return (
+                  <TableRow
+                    key={`pinned-${name}`}
+                    name={name}
+                    columns={columns}
+                    rowCount={rowCount}
+                    isExpanded={isExpanded}
+                    searchTerm={searchTerm.trim()}
+                    isPinned
+                    selectedColumn={
+                      selectedColumn && selectedColumn.table === name
+                        ? selectedColumn.column
+                        : null
+                    }
+                    onToggleExpand={() => toggleExpand(name)}
+                    onPreviewClick={(e) => handlePreviewClick(e, name)}
+                    onDdlClick={(e) => handleDdlClick(e, name)}
+                    onColumnClick={(e, info) => handleColumnClick(e, name, info)}
+                    onContextMenu={(e) => handleContextMenu(e, name)}
+                    onUnpinClick={(e) => handleUnpinClick(e, name)}
+                  />
+                );
+              })}
+            </ul>
+            {/* Divider between pinned and main sections. */}
+            <div className="border-b border-[#1f2033] mx-2 mb-1" />
+          </>
+        )}
+
         {/* The actual table list. */}
         {filteredTables.length > 0 && (
           <ul className="py-1" role="tree" aria-label="Database tables">
@@ -588,6 +818,7 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
                   rowCount={rowCount}
                   isExpanded={isExpanded}
                   searchTerm={searchTerm.trim()}
+                  isPinned={false}
                   selectedColumn={
                     selectedColumn && selectedColumn.table === name
                       ? selectedColumn.column
@@ -597,6 +828,8 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
                   onPreviewClick={(e) => handlePreviewClick(e, name)}
                   onDdlClick={(e) => handleDdlClick(e, name)}
                   onColumnClick={(e, info) => handleColumnClick(e, name, info)}
+                  onContextMenu={(e) => handleContextMenu(e, name)}
+                  onUnpinClick={(e) => handleUnpinClick(e, name)}
                 />
               );
             })}
@@ -631,6 +864,24 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
       */}
       {ddlTable && (
         <DdlViewer table={ddlTable} onClose={closeDdlViewer} />
+      )}
+
+      {/* ===== CONTEXT MENU ===== */}
+      {/*
+        Rendered as a sibling at the SchemaTree root so it uses fixed viewport
+        positioning and is NOT clipped by the sidebar's overflow-y-auto.
+        Only one context menu can be open at a time — opening a new one via
+        right-click on a different row replaces the previous one.
+      */}
+      {contextMenu && (
+        <ContextMenu
+          table={contextMenu.table}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          isPinned={pinnedTables.has(contextMenu.table)}
+          onPinToggle={() => handlePinToggle(contextMenu.table)}
+          onClose={closeContextMenu}
+        />
       )}
     </div>
   );
@@ -698,17 +949,26 @@ function TableRow({
   rowCount,
   isExpanded,
   searchTerm,
+  isPinned,
   selectedColumn,
   onToggleExpand,
   onPreviewClick,
   onDdlClick,
   onColumnClick,
+  onContextMenu,
+  onUnpinClick,
 }: {
   name: string;
   columns: ColumnInfo[];
   rowCount: number | undefined;
   isExpanded: boolean;
   searchTerm: string;
+  /**
+   * True when this row is rendering inside the Pinned section.
+   * Controls whether the leading icon is a chevron (normal) or a filled
+   * star (pinned). The star doubles as the unpin button.
+   */
+  isPinned: boolean;
   /** Name of the column whose stats popover is open, or null. */
   selectedColumn: string | null;
   onToggleExpand: () => void;
@@ -716,6 +976,13 @@ function TableRow({
   /** Opens the DDL viewer modal for this table. */
   onDdlClick: (e: React.MouseEvent) => void;
   onColumnClick: (e: React.MouseEvent<HTMLButtonElement>, info: ColumnInfo) => void;
+  /** Opens the right-click context menu at the cursor position. */
+  onContextMenu: (e: React.MouseEvent) => void;
+  /**
+   * Called when the user clicks the star icon on a pinned row to remove it
+   * from the pinned set. Only invoked when isPinned is true.
+   */
+  onUnpinClick: (e: React.MouseEvent) => void;
 }) {
   // Filter columns when searching. We only narrow if the table name DIDN'T
   // match — otherwise show all columns (the user opened the table to browse,
@@ -735,6 +1002,7 @@ function TableRow({
       {/* ===== TABLE HEADER ROW ===== */}
       <div
         onClick={onToggleExpand}
+        onContextMenu={onContextMenu}
         // role=button + keyboard handler so this is reachable by keyboard users.
         role="button"
         tabIndex={0}
@@ -747,7 +1015,25 @@ function TableRow({
         className="group flex items-center gap-1.5 px-2 h-6 cursor-pointer hover:bg-[#0f0f1a] select-none"
         title={`Toggle ${name}`}
       >
-        <ChevronIcon open={isExpanded} />
+        {/*
+          Leading icon:
+          - Pinned rows show a filled amber star that doubles as the unpin
+            button. The star is always visible (not hover-gated) because it's
+            the primary affordance for "this is pinned — click to remove".
+          - Normal rows show the collapse chevron as before.
+        */}
+        {isPinned ? (
+          <button
+            onClick={onUnpinClick}
+            className="shrink-0 flex items-center justify-center w-4 h-4 rounded text-[#f59e0b] hover:text-[#fbbf24] hover:bg-[#1a1400] transition-colors duration-100"
+            aria-label={`Unpin ${name}`}
+            title={`Unpin ${name}`}
+          >
+            <StarFilledIcon />
+          </button>
+        ) : (
+          <ChevronIcon open={isExpanded} />
+        )}
         <TableIcon />
 
         {/* Table name. truncate clips long names; min-w-0 lets flex shrink it. */}
@@ -945,6 +1231,143 @@ function KeyBadge({
     >
       {label}
     </span>
+  );
+}
+
+// ===== SUB-COMPONENT: ContextMenu =====
+
+/**
+ * ContextMenu — the single-item right-click menu that appears over a table row.
+ *
+ * ===== DESIGN DECISIONS =====
+ *
+ * WHY a single-item menu instead of a plain button:
+ *   The right-click pattern is the user's learned gesture for "what can I do
+ *   with this thing". A context menu meets that expectation and leaves room to
+ *   add future actions (e.g. "Copy table name", "Count rows") without adding
+ *   icon-button chrome to every row in the sidebar.
+ *
+ * WHY fixed positioning at (x, y):
+ *   The menu should appear exactly where the user right-clicked — not pinned
+ *   to the sidebar edge or to the row's bounding box. fixed + clientX/clientY
+ *   gives that behavior and also escapes the sidebar's overflow-y-auto clip.
+ *
+ * DISMISSAL:
+ *   - Click outside (mousedown on the backdrop overlay)
+ *   - Escape key (useEffect that listens on document)
+ *   Both paths call onClose.
+ *
+ * VIEWPORT CLAMPING:
+ *   If the cursor is near the right or bottom edge the menu would overflow.
+ *   We clamp by applying max-w-[180px] and letting the browser clip naturally —
+ *   acceptable for a 1-item menu that's very narrow. A full right-click library
+ *   would measure the menu and flip it; that's overkill for one item.
+ */
+function ContextMenu({
+  table,
+  x,
+  y,
+  isPinned,
+  onPinToggle,
+  onClose,
+}: {
+  /** Table the menu targets. */
+  table: string;
+  /** Horizontal viewport position in px. */
+  x: number;
+  /** Vertical viewport position in px. */
+  y: number;
+  /** Whether the table is currently pinned — controls the menu item label. */
+  isPinned: boolean;
+  /** Called when the user clicks the pin/unpin item. */
+  onPinToggle: () => void;
+  /** Called when the menu should close (click-outside or Escape). */
+  onClose: () => void;
+}) {
+  // Ref for the menu panel — used to detect "click outside" (any mousedown
+  // that is NOT inside the panel) so we can close the menu.
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // ── Dismiss on Escape ──────────────────────────────────────────────────────
+  useEffect(() => {
+    /**
+     * Close the menu when the user presses Escape.
+     *
+     * WHY attach to document (not the menu div):
+     *   The menu div may not have focus — the user right-clicked, not tabbed
+     *   to the menu. Listening on document ensures we catch the key regardless
+     *   of which element has focus.
+     */
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  // ── Dismiss on click-outside ───────────────────────────────────────────────
+  useEffect(() => {
+    /**
+     * Close the menu when the user mousedowns outside the panel.
+     *
+     * WHY mousedown (not click):
+     *   `click` fires AFTER mouseup. If the user mousedowns outside and then
+     *   mouseups on the menu, `click` would fire on the menu — confusing. Using
+     *   `mousedown` catches the intent before release.
+     */
+    const handleMouseDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [onClose]);
+
+  return (
+    /*
+     * Invisible full-viewport backdrop. Intercepts right-clicks elsewhere so
+     * the browser's native context menu doesn't appear while our menu is open.
+     * The div itself does NOT close the menu on click — the mousedown handler
+     * above handles dismissal so we don't need a click handler here.
+     */
+    <div
+      className="fixed inset-0 z-50"
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {/* Menu panel — anchored at the cursor position. */}
+      <div
+        ref={menuRef}
+        style={{ top: y, left: x }}
+        className={[
+          "absolute z-50 min-w-[160px] max-w-[220px]",
+          "rounded border border-[#1f2033] bg-[#0d0d1a] shadow-xl",
+          "py-1",
+        ].join(" ")}
+        role="menu"
+        aria-label={`Actions for ${table}`}
+      >
+        {/* ── Menu item: Pin / Unpin ── */}
+        <button
+          onClick={onPinToggle}
+          className={[
+            "w-full flex items-center gap-2 px-3 h-7 text-left",
+            "text-[11px] font-mono text-[#ededf0]",
+            "hover:bg-[#14142b] transition-colors duration-75",
+          ].join(" ")}
+          role="menuitem"
+        >
+          {/* Star icon signals the pin/favorite action. */}
+          <span
+            className={isPinned ? "text-[#f59e0b]" : "text-[#4b5563]"}
+            aria-hidden="true"
+          >
+            <StarFilledIcon />
+          </span>
+          {isPinned ? "Unpin table" : "Pin to top"}
+        </button>
+      </div>
+    </div>
   );
 }
 
