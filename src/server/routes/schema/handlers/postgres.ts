@@ -175,4 +175,151 @@ export const postgresHandler: SchemaHandler = {
       isIndexed: idxSet.has(c.name),
     }));
   },
+
+  // ===== POSTGRES CREATE TABLE RECONSTRUCTION =====
+  //
+  // Postgres has no built-in "show me the DDL for this table" command (unlike
+  // MySQL's SHOW CREATE TABLE). We reconstruct the DDL from the system catalogs:
+  //
+  //   - pg_attribute  + format_type()       → columns with full type modifiers
+  //                                           (e.g. varchar(255), numeric(10,2))
+  //   - pg_attrdef    + pg_get_expr()       → DEFAULT expressions
+  //   - pg_constraint + pg_get_constraintdef() → PK / FK / UNIQUE / CHECK
+  //                                           printed as canonical constraint text
+  //                                           (no manual quoting on our side)
+  //   - pg_indexes.indexdef                 → CREATE INDEX statements,
+  //                                           filtered to NON-constraint indexes
+  //                                           so we don't redundantly emit the
+  //                                           PK/UNIQUE backing index after the
+  //                                           ALTER TABLE that already created it
+  //
+  // WHY use pg_get_constraintdef / pg_get_indexdef:
+  //   They emit the exact, fully-quoted SQL that pg itself would round-trip.
+  //   That spares us from re-implementing identifier quoting, composite-key
+  //   formatting, and ON DELETE / ON UPDATE clauses. Anything we hand-format
+  //   is a future bug; anything pg formats for us is by definition correct.
+  async getDdl(db, tableName) {
+    // ── Columns ────────────────────────────────────────────────────────────
+    // format_type(atttypid, atttypmod) collapses the catalog's separate type +
+    // modifier columns into the dialect-spelling we want ("character varying(255)",
+    // "numeric(10,2)", etc.). attnum > 0 filters out system columns (oid, ctid).
+    // attisdropped excludes columns that pg keeps as tombstones after a DROP
+    // COLUMN — they're invisible to applications and shouldn't appear in DDL.
+    const colResult = await db.raw(
+      `
+      SELECT
+        a.attname AS name,
+        format_type(a.atttypid, a.atttypmod) AS type,
+        a.attnotnull AS not_null,
+        pg_get_expr(d.adbin, d.adrelid) AS default_value
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid = a.attrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      LEFT JOIN pg_attrdef d
+        ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+      WHERE n.nspname = 'public'
+        AND c.relname = ?
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+      ORDER BY a.attnum
+    `,
+      [tableName]
+    );
+    const cols = extractRows<{
+      name: string;
+      type: string;
+      not_null: boolean;
+      default_value: string | null;
+    }>(colResult);
+
+    if (cols.length === 0) {
+      // Empty result means the table vanished between the route's whitelist
+      // check and this query (rare race). Return a placeholder so the UI shows
+      // a clear, non-empty message instead of a blank editor.
+      return `-- Table "${tableName}" not found.`;
+    }
+
+    // ── Constraints ────────────────────────────────────────────────────────
+    // pg_get_constraintdef(oid) returns canonical constraint text such as:
+    //   PRIMARY KEY (id)
+    //   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    //   UNIQUE (email)
+    //   CHECK ((age >= 0))
+    // Combined with the ALTER TABLE prefix below, this produces ready-to-run
+    // SQL without us having to spell out any of the constraint-specific syntax.
+    const conResult = await db.raw(
+      `
+      SELECT
+        conname AS name,
+        pg_get_constraintdef(c.oid) AS def
+      FROM pg_constraint c
+      JOIN pg_class t ON t.oid = c.conrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = 'public'
+        AND t.relname = ?
+      ORDER BY c.contype, c.conname
+    `,
+      [tableName]
+    );
+    const constraints = extractRows<{ name: string; def: string }>(conResult);
+
+    // ── Indexes (excluding those backing a constraint) ─────────────────────
+    // PK and UNIQUE constraints both create an underlying index, and that
+    // index also appears in pg_index. Emitting both the constraint AND the
+    // backing CREATE INDEX would produce broken DDL (duplicate index name).
+    // The NOT EXISTS filter keeps only "real" indexes — those the user
+    // created with CREATE INDEX, not the implicit ones.
+    const idxResult = await db.raw(
+      `
+      SELECT pg_get_indexdef(i.indexrelid) AS def
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = ?
+        AND NOT i.indisprimary
+        AND NOT EXISTS (
+          SELECT 1 FROM pg_constraint con WHERE con.conindid = i.indexrelid
+        )
+      ORDER BY i.indexrelid
+    `,
+      [tableName]
+    );
+    const indexes = extractRows<{ def: string }>(idxResult);
+
+    // ── Assemble the DDL ───────────────────────────────────────────────────
+    // Format each column line as: "  "name" type [NOT NULL] [DEFAULT expr],
+    // Identifier quoting via "..." is the SQL-standard form Postgres prefers.
+    const colLines = cols.map((c) => {
+      const parts = [`"${c.name}"`, c.type];
+      if (c.not_null) parts.push("NOT NULL");
+      if (c.default_value != null) parts.push(`DEFAULT ${c.default_value}`);
+      return `  ${parts.join(" ")}`;
+    });
+
+    const lines: string[] = [];
+    lines.push(`CREATE TABLE "${tableName}" (`);
+    lines.push(colLines.join(",\n"));
+    lines.push(`);`);
+
+    // Append ALTER TABLE statements for each constraint. We emit them as
+    // separate statements (rather than inline column constraints) for two
+    // reasons: composite keys can't be expressed inline, and the separation
+    // keeps the column block tidy and grep-friendly.
+    for (const con of constraints) {
+      lines.push("");
+      lines.push(
+        `ALTER TABLE "${tableName}" ADD CONSTRAINT "${con.name}" ${con.def};`
+      );
+    }
+
+    // Append CREATE INDEX statements last. pg_get_indexdef already includes
+    // the trailing semicolon-less form, so we add it ourselves.
+    for (const ix of indexes) {
+      lines.push("");
+      lines.push(`${ix.def};`);
+    }
+
+    return lines.join("\n");
+  },
 };

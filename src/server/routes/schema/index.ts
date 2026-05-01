@@ -259,5 +259,59 @@ export function createSchemaRouter(
     }
   );
 
+  // ── GET /api/schema/:table/ddl ──────────────────────────────────────────
+  //
+  // Returns the table's CREATE TABLE DDL as a plain SQL string in a JSON
+  // envelope: { "ddl": "CREATE TABLE ..." }.
+  //
+  // WHY a JSON envelope rather than text/plain:
+  //   The rest of /api/schema/* speaks JSON. Keeping the response shape
+  //   uniform means the client can use one fetch wrapper for the whole
+  //   namespace and surface errors via the same { error } pattern as the
+  //   other endpoints.
+  //
+  // SECURITY: identical whitelist pattern to GET /:table — the table name
+  // from the URL is checked against listTables() before it ever reaches
+  // the dialect-specific getDdl() implementation. This matters most for
+  // MySQL and SQLite where the table name is INLINED into the SQL
+  // (SHOW CREATE TABLE / sqlite_master.sql with backtick quoting on
+  // MySQL) rather than passed as a bind parameter.
+  router.get(
+    "/:table/ddl",
+    async (req: Request, res: Response): Promise<void> => {
+      // noUncheckedIndexedAccess defensive narrowing — see /:table for the
+      // longer rationale; same pattern repeated for consistency.
+      const tableName = req.params.table;
+      if (!tableName) {
+        res.status(400).json({ error: "Missing table name in URL." });
+        return;
+      }
+
+      try {
+        // Whitelist the table BEFORE invoking the per-dialect getDdl. Same
+        // reasoning as the other routes: makes the value reaching the SQL
+        // layer server-confirmed to exist, regardless of how the underlying
+        // statement quotes (or doesn't quote) the identifier.
+        const tables = await handler.listTables(db);
+        if (!tables.some((t) => t.name === tableName)) {
+          res
+            .status(404)
+            .json({ error: `Table not found: ${tableName}` });
+          return;
+        }
+
+        const ddl = await handler.getDdl(db, tableName);
+        res.status(200).json({ ddl });
+      } catch (err: unknown) {
+        // Same 400 contract as /:table — an error past the whitelist is
+        // a database failure (timeout, dropped connection, etc.). Surface
+        // the raw driver message so the user can diagnose without server
+        // log access.
+        const message = err instanceof Error ? err.message : String(err);
+        res.status(400).json({ error: message });
+      }
+    }
+  );
+
   return router;
 }

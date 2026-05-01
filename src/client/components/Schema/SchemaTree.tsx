@@ -60,6 +60,7 @@ import { useMemo, useState, useCallback } from "react";
 import { useAppStore } from "../../stores/app";
 import type { ColumnInfo } from "../../hooks/useSchema";
 import { ColumnStats } from "./ColumnStats";
+import { DdlViewer } from "./DdlViewer";
 
 // ===== TYPES =====
 
@@ -265,6 +266,37 @@ function PreviewIcon() {
 }
 
 /**
+ * Code-brackets icon used for the "Show DDL" action on a table row. The
+ * angle-brackets read as "structured definition" in dev tooling — the same
+ * convention used in IDEs to mean "view source / definition".
+ */
+function DdlIcon() {
+  return (
+    <svg
+      className="w-3 h-3 shrink-0"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M4.5 3L1.5 6L4.5 9"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.5 3L10.5 6L7.5 9"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/**
  * Magnifying-glass icon for the search input.
  */
 function SearchIcon() {
@@ -336,6 +368,15 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
   const [selectedColumn, setSelectedColumn] = useState<ColumnAnchor | null>(
     null
   );
+
+  /**
+   * Name of the table whose DDL viewer is open, or null if none.
+   *
+   * WHY a single string and not a Set: only one DDL modal can be open at a
+   * time (it's a centered overlay). Storing the table name directly lets the
+   * render branch be a simple `ddlTable && <DdlViewer table={ddlTable} ... />`.
+   */
+  const [ddlTable, setDdlTable] = useState<string | null>(null);
 
   // ── Derived: filtered table list ──────────────────────────────────────────
   //
@@ -432,6 +473,25 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
     },
     [onPreview]
   );
+
+  /**
+   * Opens the DDL viewer modal for a table.
+   *
+   * WHY stopPropagation: the DDL button lives inside the table-row container
+   * which itself toggles the row's expand state on click. Without stopping
+   * propagation, opening the modal would also collapse/expand the row — a
+   * surprising side-effect for the user.
+   */
+  const handleDdlClick = useCallback(
+    (e: React.MouseEvent, tableName: string) => {
+      e.stopPropagation();
+      setDdlTable(tableName);
+    },
+    []
+  );
+
+  /** Closes the DDL viewer. Passed to DdlViewer so its dismiss paths work. */
+  const closeDdlViewer = useCallback(() => setDdlTable(null), []);
 
   /**
    * Opens (or toggles) the ColumnStats popover for a given column.
@@ -535,6 +595,7 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
                   }
                   onToggleExpand={() => toggleExpand(name)}
                   onPreviewClick={(e) => handlePreviewClick(e, name)}
+                  onDdlClick={(e) => handleDdlClick(e, name)}
                   onColumnClick={(e, info) => handleColumnClick(e, name, info)}
                 />
               );
@@ -557,6 +618,19 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
           anchor={selectedColumn.rect}
           onClose={closePopover}
         />
+      )}
+
+      {/* ===== DDL VIEWER MODAL ===== */}
+      {/*
+        Rendered as a sibling at the SchemaTree root so it overlays the entire
+        viewport (the modal itself uses position:fixed). Mounting it
+        conditionally — instead of rendering it always with an "open" prop —
+        means TanStack Query only fires the fetch the first time the user
+        actually opens the modal, and the CodeMirror EditorView is built only
+        when needed.
+      */}
+      {ddlTable && (
+        <DdlViewer table={ddlTable} onClose={closeDdlViewer} />
       )}
     </div>
   );
@@ -627,6 +701,7 @@ function TableRow({
   selectedColumn,
   onToggleExpand,
   onPreviewClick,
+  onDdlClick,
   onColumnClick,
 }: {
   name: string;
@@ -638,6 +713,8 @@ function TableRow({
   selectedColumn: string | null;
   onToggleExpand: () => void;
   onPreviewClick: (e: React.MouseEvent) => void;
+  /** Opens the DDL viewer modal for this table. */
+  onDdlClick: (e: React.MouseEvent) => void;
   onColumnClick: (e: React.MouseEvent<HTMLButtonElement>, info: ColumnInfo) => void;
 }) {
   // Filter columns when searching. We only narrow if the table name DIDN'T
@@ -697,6 +774,18 @@ function TableRow({
           title={`Preview: SELECT * FROM ${name} LIMIT 100`}
         >
           <PreviewIcon />
+        </button>
+
+        {/* Show DDL button. Same hover-reveal treatment as the preview button
+            to keep the row tidy when idle. The two action buttons sit next to
+            each other on the right edge, after the row-count badge. */}
+        <button
+          onClick={onDdlClick}
+          className="shrink-0 flex items-center justify-center w-5 h-5 rounded text-[#4b5563] hover:text-[#7c85d6] hover:bg-[#14142b] opacity-0 group-hover:opacity-100 transition-opacity duration-100"
+          aria-label={`Show DDL for ${name}`}
+          title={`Show DDL for ${name}`}
+        >
+          <DdlIcon />
         </button>
       </div>
 

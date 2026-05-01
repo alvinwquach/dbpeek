@@ -121,4 +121,30 @@ export interface SchemaHandler {
    * where a table is dropped between the two calls.)
    */
   describeTable: (db: Knex, tableName: string) => Promise<ColumnInfo[]>;
+
+  /**
+   * Returns the table's CREATE TABLE DDL as a single SQL string ready to
+   * paste into a script.
+   *
+   * WHY a string and not a structured payload:
+   *   The UI renders this verbatim in a read-only CodeMirror with SQL
+   *   highlighting. Returning a structured object would force the client
+   *   to re-serialize back to SQL, duplicating each dialect's quoting
+   *   rules. Each dialect already knows how to spell its own DDL — let
+   *   the server do it once and ship a string.
+   *
+   * DIALECT STRATEGY:
+   *   - MySQL / SQLite: the engine itself produces DDL (SHOW CREATE TABLE
+   *     for MySQL, the original `sql` text in sqlite_master for SQLite).
+   *     We pass it through unchanged.
+   *   - Postgres / MSSQL: there is no built-in "give me the DDL" command,
+   *     so we reconstruct it from system catalogs (pg_attribute /
+   *     pg_constraint / pg_indexes for Postgres, sys.columns / sys.indexes
+   *     / sys.foreign_keys for MSSQL). The reconstruction is correct for
+   *     the common shapes (tables, PK/FK/UNIQUE/CHECK constraints, indexes)
+   *     but may not capture every esoteric feature (per-column collations,
+   *     tablespaces, partitioning) — for a developer browsing tool that's
+   *     a deliberate trade-off for legibility.
+   */
+  getDdl: (db: Knex, tableName: string) => Promise<string>;
 }
