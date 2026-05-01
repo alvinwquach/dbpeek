@@ -18,10 +18,14 @@
  *   import site. useQueryExecution is unambiguous: it executes a query imperatively.
  *
  * HOW IT WORKS:
- *   1. Caller invokes `execute(sql)` — typically from the SqlEditor's onRun prop.
+ *   1. Caller invokes `execute(sql, params)` — typically from the SqlEditor's
+ *      onRun prop. `params` is the resolved array or object produced by
+ *      buildParamValues() in SqlEditor.tsx.
  *   2. Hook reads the active tab id from the Zustand store, then:
  *        a. Immediately sets loading=true, result=null, error=null on that tab.
- *        b. Sends POST /api/query with { sql } in the body.
+ *        b. Sends POST /api/query with { sql, params } in the body.
+ *           When `params` is undefined it is omitted from the JSON body so the
+ *           server treats the request as a plain (non-parameterized) query.
  *        c. On success: writes result + success history entry into the tab.
  *        d. On error:   writes error message + failure history entry into the tab.
  *        e. Finally:    sets loading=false on the tab.
@@ -94,6 +98,9 @@ interface QueryApiError {
  *   execute — async function that fires the query against the currently active
  *             tab. Results are written into that tab's slot in the Zustand store,
  *             so they persist across tab switches.
+ *             `params` is the array (positional $N) or object (named :name)
+ *             produced by buildParamValues() in SqlEditor.tsx. When undefined,
+ *             the server executes `sql` as a plain statement.
  *
  * Components that need loading / result / error read them directly from the
  * store via a selector keyed on the active tab id:
@@ -101,7 +108,10 @@ interface QueryApiError {
  *   tab.loading / tab.result / tab.error
  */
 export function useQueryExecution(): {
-  execute: (sql: string) => Promise<void>;
+  execute: (
+    sql: string,
+    params?: unknown[] | Record<string, string>
+  ) => Promise<void>;
 } {
   // Pull only stable action references — not reactive slices — to avoid
   // re-renders every time any tab's query state changes.
@@ -116,7 +126,7 @@ export function useQueryExecution(): {
   const getState = useAppStore.getState;
 
   const execute = useCallback(
-    async (sql: string) => {
+    async (sql: string, params?: unknown[] | Record<string, string>) => {
       const trimmed = sql.trim();
 
       // Guard: don't fire a request for empty SQL. The editor's placeholder
@@ -136,10 +146,19 @@ export function useQueryExecution(): {
       setTabQueryState(tabId, { loading: true, result: null, error: null });
 
       try {
+        // Build the request body. Omit `params` entirely when undefined so the
+        // server's existing param-less code path is unaffected.
+        const requestBody: { sql: string; params?: unknown[] | Record<string, string> } = {
+          sql: trimmed,
+        };
+        if (params !== undefined) {
+          requestBody.params = params;
+        }
+
         const response = await fetch("/api/query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sql: trimmed }),
+          body: JSON.stringify(requestBody),
         });
 
         // Parse JSON regardless of status — error responses also carry JSON bodies.
