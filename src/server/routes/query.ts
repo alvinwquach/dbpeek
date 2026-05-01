@@ -2,16 +2,32 @@
 // POST /api/query — the single endpoint that executes user-supplied SQL.
 //
 // This is the busiest data path in the application. The browser sends a SQL
-// string; this route validates it against the active permission mode, runs it
-// through Knex, normalizes the dialect-specific result shape into a uniform
-// envelope, and returns it (or a structured error) to the client.
+// string (and optional parameter bindings); this route validates it against
+// the active permission mode, runs it through Knex, normalizes the
+// dialect-specific result shape into a uniform envelope, and returns it (or
+// a structured error) to the client.
 //
 // ===== REQUEST / RESPONSE CONTRACT =====
 //
 //   Request:
 //     POST /api/query
 //     Content-Type: application/json
-//     Body: { "sql": string }
+//     Body: { "sql": string, "params"?: unknown[] | Record<string, string> }
+//
+//   `params` is OPTIONAL. When absent the query runs as a plain statement.
+//   When present it is forwarded verbatim to knex.raw(sql, params).
+//
+//   Positional bindings ($1/$2/… Postgres style) must be supplied as a
+//   plain array in $N order: [value1, value2, …].
+//
+//   Named bindings (:name style) must be supplied as a plain object:
+//   { name: value, … }.  knex.raw handles both forms transparently.
+//
+//   WHY knex.raw(sql, params) instead of string interpolation:
+//     knex.raw() hands the SQL and the binding array/object directly to the
+//     underlying driver's prepared-statement API. The driver escapes and
+//     type-converts each value — protecting against SQL injection and
+//     ensuring numeric values are not coerced to strings.
 //
 //   Success (200):
 //     {
@@ -315,9 +331,9 @@ interface StatementResult extends NormalizedResult {
  *   eliminates a class of subtle "single is timed differently than multi" bugs.
  *
  * WHAT it does:
- *   Issues `db.raw(sql)`, measures the round-trip with hrtime, normalizes the
- *   driver-specific result shape, and returns a {columns, rows, rowCount,
- *   executionTime} bundle.
+ *   Issues `db.raw(sql[, params])`, measures the round-trip with hrtime,
+ *   normalizes the driver-specific result shape, and returns a {columns, rows,
+ *   rowCount, executionTime} bundle.
  *
  * HOW it works:
  *   1. Snapshot start time as BigInt nanoseconds (hrtime; immune to NTP skew).
@@ -326,17 +342,40 @@ interface StatementResult extends NormalizedResult {
  *      float with sub-ms resolution.
  *   4. Hand the raw driver result to normalizeResult() for shape canonicalization.
  *
- * @param db  - The Knex instance to execute through.
- * @param sql - A SINGLE SQL statement (no semicolons inside, except those
- *              escaped within strings/identifiers/comments). The caller is
- *              responsible for splitting; this helper does not validate.
+ * WHY params is unknown[] | Record<string, unknown> | undefined:
+ *   knex.raw() accepts either a positional array or a named-binding object as
+ *   its second argument. We pass whichever form the client sent — the driver
+ *   handles escaping and type conversion, so we never interpolate values into
+ *   the SQL string ourselves. When params is undefined we call db.raw(sql) so
+ *   plain (non-parameterized) queries are unaffected.
+ *
+ * WHY params is only forwarded for the single-statement path:
+ *   The multi-statement path uses splitStatements() to slice the batch, then
+ *   calls executeStatement() per slice. Because $N placeholders are positional
+ *   and scoped to one statement, binding an array of values to a multi-statement
+ *   batch is ambiguous — which statement owns $1? Drivers reject it anyway. So
+ *   params are honoured only when there is exactly one statement to execute,
+ *   matching the client's behaviour (the param strip parses the full SQL but
+ *   the user typically runs parameterized queries as single statements).
+ *
+ * @param db     - The Knex instance to execute through.
+ * @param sql    - A SINGLE SQL statement (no semicolons inside, except those
+ *                 escaped within strings/identifiers/comments). The caller is
+ *                 responsible for splitting; this helper does not validate.
+ * @param params - Optional positional array or named-binding object forwarded
+ *                 verbatim to knex.raw() for safe value substitution.
  */
 async function executeStatement(
   db: Knex,
-  sql: string
+  sql: string,
+  params?: Knex.RawBinding[] | Knex.ValueDict
 ): Promise<NormalizedResult & { executionTime: number }> {
   const start = process.hrtime.bigint();
-  const rawResult = await db.raw(sql);
+  // Pass params only when provided — calling db.raw(sql, undefined) triggers
+  // a "bindings must be an array or object" error in some driver versions.
+  const rawResult = params !== undefined
+    ? await db.raw(sql, params)
+    : await db.raw(sql);
   const end = process.hrtime.bigint();
   // BigInt → number conversion: nanoseconds / 1e6 = milliseconds.
   // Lossless for any duration under ~104 days, which trivially covers any
@@ -419,17 +458,49 @@ export function createQueryRouter(db: Knex, mode: PermissionMode): Router {
 
   router.post("/", async (req: Request, res: Response) => {
     // ── Step 1: shape-check the request body ───────────────────────────────
-    // We accept exactly { sql: string }. Anything else is a 400 — we do not
-    // try to coerce numbers to strings or to look at alternative field names.
-    // Strict input validation here means downstream code never has to handle
-    // `undefined` or non-string SQL.
-    const body = req.body as { sql?: unknown } | undefined;
+    // We accept { sql: string, params?: unknown[] | Record<string, unknown> }.
+    // `sql` is required and must be a non-empty string.
+    // `params` is optional; when present it must be a plain array or a plain
+    // object (not null, not a class instance). Anything else is a 400 — we do
+    // not try to coerce. Strict input validation means downstream code never
+    // has to handle `undefined` or non-string SQL.
+    const body = req.body as {
+      sql?: unknown;
+      params?: unknown;
+    } | undefined;
     const sql = body?.sql;
 
     if (typeof sql !== "string" || sql.trim() === "") {
       return res.status(400).json({
         error: 'Request body must contain a non-empty "sql" string.',
       });
+    }
+
+    // Validate optional params. We accept an array or a plain (non-null) object.
+    // A null or other primitive type is rejected because knex.raw() would throw,
+    // and an early 400 gives the caller a clearer signal than a 500.
+    const rawParams = body?.params;
+    // Typed as the union knex.raw() accepts so no cast is needed at the call site.
+    let params: Knex.RawBinding[] | Knex.ValueDict | undefined;
+    if (rawParams !== undefined) {
+      if (Array.isArray(rawParams)) {
+        // JSON arrays from client inputs contain strings, numbers, booleans, and
+        // nulls — all valid RawBinding values. We trust the driver to coerce as
+        // needed (e.g. "42" is sent as a string; if the column is integer the
+        // DB driver handles it). Cast via the shared type so no `as any` escape.
+        params = rawParams as Knex.RawBinding[];
+      } else if (
+        typeof rawParams === "object" &&
+        rawParams !== null &&
+        !Array.isArray(rawParams)
+      ) {
+        params = rawParams as Knex.ValueDict;
+      } else {
+        return res.status(400).json({
+          error:
+            '"params" must be an array (positional $N bindings) or a plain object (named :name bindings).',
+        });
+      }
     }
 
     // ── Step 2: enforce the permission mode ────────────────────────────────
@@ -468,13 +539,16 @@ export function createQueryRouter(db: Knex, mode: PermissionMode): Router {
     // backward compatibility with:
     //   - the existing client code path that expects top-level fields, and
     //   - existing tests that assert exact (toEqual) error/success bodies.
+    //
+    // `params` is forwarded here and ONLY here. The multi-statement path
+    // (step 5) does not receive params — see executeStatement's JSDoc for why.
     if (statements.length === 1) {
       // Non-null assertion: statements.length === 1 guarantees [0] exists.
       // tsconfig has noUncheckedIndexedAccess on, which widens the element
       // type to `string | undefined` regardless of length checks.
       const onlyStatement = statements[0]!;
       try {
-        const result = await executeStatement(db, onlyStatement);
+        const result = await executeStatement(db, onlyStatement, params);
         return res.status(200).json({
           columns: result.columns,
           rows: result.rows,

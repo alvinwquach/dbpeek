@@ -43,7 +43,7 @@
  *   Min heights prevent both panels from collapsing to zero.
  */
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { StatusBar } from "./components/StatusBar";
 import { SqlEditor } from "./components/Editor/SqlEditor";
 import { EditorTabs } from "./components/Editor/EditorTabs";
@@ -57,6 +57,7 @@ import { useExplain } from "./hooks/useExplain";
 import { useSchema } from "./hooks/useSchema";
 import { useAppStore } from "./stores/app";
 import { formatSql } from "./utils/formatSql";
+import { parseSqlParams } from "./components/Editor/SqlEditor";
 
 // ===== LAYOUT CONSTANTS =====
 
@@ -94,6 +95,22 @@ export default function App() {
   const activeTab = useAppStore((s) => s.tabs[s.activeTabIndex]);
   const updateTab = useAppStore((s) => s.updateTab);
 
+  // ── Param count for the Run button label ─────────────────────────────────────
+  // We parse the active tab's SQL (from the store, which is in sync with the
+  // editor via onChange) to count how many distinct $N/:name placeholders exist.
+  // This lets the Run button show "Run (2 params)" without lifting paramValues
+  // state out of SqlEditor.
+  //
+  // WHY import parseSqlParams here instead of a separate hook:
+  //   parseSqlParams is a pure function. Calling it inline in the render path
+  //   (gated by useMemo) costs two regex scans over the SQL string — cheap
+  //   enough that a dedicated hook would be over-engineering.
+  const paramCount = useMemo(
+    () => parseSqlParams(activeTab?.sql ?? "").length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeTab?.sql]
+  );
+
   // ── History panel ────────────────────────────────────────────────────────────
   // historyOpen drives the conditional render of the push-panel aside.
   // toggleHistory is also wired to Cmd+H below.
@@ -130,12 +147,18 @@ export default function App() {
 
   /**
    * handleRun — fires the query. Called from:
-   *   a) SqlEditor's Cmd/Ctrl+Enter keymap (passes current doc string).
-   *   b) The Run button in the panel header (passes activeTab.sql from store).
+   *   a) SqlEditor's Cmd/Ctrl+Enter keymap (passes current doc string + resolved params).
+   *   b) The Run button in the panel header (passes activeTab.sql from store, no params).
+   *
+   * WHY params is optional here:
+   *   The Run button click path (handleRunButtonClick) doesn't have access to the
+   *   live paramValues state inside SqlEditor, so it passes no params. The keymap
+   *   path (Mod-Enter) resolves params inside SqlEditor before calling onRun, so
+   *   they arrive here fully formed.
    */
   const handleRun = useCallback(
-    (sql: string) => {
-      void execute(sql);
+    (sql: string, params?: unknown[] | Record<string, string>) => {
+      void execute(sql, params);
     },
     [execute]
   );
@@ -143,6 +166,8 @@ export default function App() {
   /**
    * handleRunButtonClick — Run button reads SQL from the active tab in the store
    * rather than from a ref, because the store is the source of truth for tab SQL.
+   * Params are not forwarded here — the button is a convenience shortcut and the
+   * param values live inside SqlEditor's local state, which the button can't reach.
    */
   const handleRunButtonClick = useCallback(() => {
     void execute(activeTab?.sql ?? "");
@@ -176,11 +201,12 @@ export default function App() {
 
   /**
    * handleRunSelection — runs only the selected text (or full doc if no selection).
-   * Called by Cmd+Shift+Enter in the editor.
+   * Called by Cmd+Shift+Enter in the editor. Params are forwarded so a selection-
+   * only run also benefits from bound values (e.g. user selects WHERE clause with $1).
    */
   const handleRunSelection = useCallback(
-    (sql: string) => {
-      void execute(sql);
+    (sql: string, params?: unknown[] | Record<string, string>) => {
+      void execute(sql, params);
     },
     [execute]
   );
@@ -349,7 +375,11 @@ export default function App() {
                     "Running…"
                   ) : (
                     <>
-                      <span>Run</span>
+                      <span>
+                        {paramCount > 0
+                          ? `Run (${paramCount} param${paramCount !== 1 ? "s" : ""})`
+                          : "Run"}
+                      </span>
                       <span className="text-[#4b5563]">⌘↵</span>
                     </>
                   )}
