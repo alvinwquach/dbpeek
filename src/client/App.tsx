@@ -2,17 +2,21 @@
  * src/client/App.tsx — Root layout component.
  *
  * LAYOUT:
- *   ┌──────────────┬──────────────────────────────────────┐
- *   │ Schema       │  [Tab 1] [Tab 2] [+]                 │  ← EditorTabs bar
- *   │ Sidebar      ├──────────────────────────────────────┤
- *   │ 244 px wide  │  SQL Editor                          │
- *   │              │  (resizable — drag the divider bar)  │
- *   │              ├──────────────────────────────────────┤
- *   │              │  Query Results                       │
- *   │              │  (grows to fill remaining space)     │
- *   ├──────────────┴──────────────────────────────────────┤
- *   │ Status Bar (24 px)                                  │
- *   └─────────────────────────────────────────────────────┘
+ *   ┌──────────────┬──────────────────────────────────────┬──────────┐
+ *   │ Schema       │  [Tab 1] [Tab 2] [+]  [History]     │ History  │  ← EditorTabs bar
+ *   │ Sidebar      ├──────────────────────────────────────┤ panel    │
+ *   │ 244 px wide  │  SQL Editor                          │ 340 px   │
+ *   │              │  (resizable — drag the divider bar)  │ (push,   │
+ *   │              ├──────────────────────────────────────┤ not      │
+ *   │              │  Query Results                       │ overlay) │
+ *   │              │  (grows to fill remaining space)     │          │
+ *   ├──────────────┴──────────────────────────────────────┴──────────┤
+ *   │ Status Bar (24 px)                                             │
+ *   └────────────────────────────────────────────────────────────────┘
+ *
+ *   When the history panel is closed the grid is back to: 244px 1fr
+ *   When open: the <aside> is added to the flex row and the center column
+ *   shrinks naturally (flex-1 contracts). Nothing is ever covered.
  *
  * MULTI-TAB ARCHITECTURE:
  *   Each tab in the Zustand store owns its SQL, result, error, loading flag,
@@ -39,12 +43,13 @@
  *   Min heights prevent both panels from collapsing to zero.
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { StatusBar } from "./components/StatusBar";
 import { SqlEditor } from "./components/Editor/SqlEditor";
 import { EditorTabs } from "./components/Editor/EditorTabs";
 import { DataGrid } from "./components/Results/DataGrid";
 import { SchemaTree } from "./components/Schema/SchemaTree";
+import { QueryHistoryPanel } from "./components/History/QueryHistoryPanel";
 import { useQueryExecution } from "./hooks/useQuery";
 import { useSchema } from "./hooks/useSchema";
 import { useAppStore } from "./stores/app";
@@ -78,6 +83,26 @@ export default function App() {
   // when unrelated tabs update.
   const activeTab = useAppStore((s) => s.tabs[s.activeTabIndex]);
   const updateTab = useAppStore((s) => s.updateTab);
+
+  // ── History panel ────────────────────────────────────────────────────────────
+  // historyOpen drives the conditional render of the push-panel aside.
+  // toggleHistory is also wired to Cmd+H below.
+  const historyOpen = useAppStore((s) => s.historyOpen);
+  const toggleHistory = useAppStore((s) => s.toggleHistory);
+
+  // Cmd+H (Mac) / Ctrl+H (Win/Linux) — global shortcut to toggle the panel.
+  // Registered on window so it fires regardless of which element has focus.
+  // preventDefault() stops browsers that use Ctrl+H for "Find & Replace History".
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "h") {
+        e.preventDefault();
+        toggleHistory();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleHistory]);
 
   // ── Panel resize state ───────────────────────────────────────────────────────
   const [editorHeightPct, setEditorHeightPct] = useState(0.4);
@@ -165,6 +190,11 @@ export default function App() {
         </aside>
 
         {/* ── CENTER: TAB BAR + EDITOR + RESULTS (vertical stack) ──────── */}
+        {/*
+          flex-1 min-w-0: the center column shrinks naturally when the history
+          push-panel aside is added to the flex row on the right. Nothing is
+          ever covered — this is a true push layout, not an overlay.
+        */}
         <div ref={centerColRef} className="flex flex-col flex-1 min-w-0 min-h-0">
 
           {/* ── SQL EDITOR PANEL (includes tab bar + editor body) ── */}
@@ -249,6 +279,23 @@ export default function App() {
 
         </div>
         {/* end center column */}
+
+        {/* ── RIGHT: HISTORY PUSH-PANEL ─────────────────────────────────── */}
+        {/*
+          Conditionally rendered so the panel occupies zero layout space when
+          closed — the center column reclaims the full remaining width.
+          340 px matches the spec. shrink-0 prevents flex from collapsing it
+          below that width when the editor content is wide.
+          overflow-hidden: QueryHistoryPanel handles its own internal scroll.
+        */}
+        {historyOpen && (
+          <aside
+            className="flex flex-col w-[340px] shrink-0 border-l border-[#1f2033] bg-[#0c0c14] overflow-hidden"
+            aria-label="Query history"
+          >
+            <QueryHistoryPanel />
+          </aside>
+        )}
 
       </div>
       {/* end main row */}

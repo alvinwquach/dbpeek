@@ -205,11 +205,16 @@ export function SqlEditor({
 }: SqlEditorProps) {
   // ── Zustand: schema map + active tab SQL ──────────────────────────────────
   // schemaMap: null until useSchema completes; triggers the reconfigure effect.
-  // tabs + activeTabIndex: used in the tab-switch effect to load the new tab's
-  // stored SQL into the editor document when tabId changes.
+  // tabs + activeTabIndex: used in both the tab-switch effect and the loadNonce
+  // effect to read the stored SQL for the currently active tab.
+  // loadNonce: a per-tab counter incremented by loadSqlFromHistory(); when it
+  // changes the nonce effect below replaces the CodeMirror document with the
+  // new tab.sql value, mirroring how the tab-switch effect works but for
+  // in-place SQL injections (history, schema preview) without a tab change.
   const schemaMap = useAppStore((s) => s.schemaMap);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabIndex = useAppStore((s) => s.activeTabIndex);
+  const loadNonce = useAppStore((s) => s.tabs[s.activeTabIndex]?.loadNonce ?? 0);
 
   // The <div> that CM will mount its DOM tree into.
   const containerRef = useRef<HTMLDivElement>(null);
@@ -408,6 +413,46 @@ export function SqlEditor({
   // tabId is the trigger; tabs + activeTabIndex provide the content to load.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId]);
+
+  // ── External SQL injection effect (history / schema preview) ─────────────
+  // Fires when loadNonce increments — meaning an external caller (e.g. the
+  // history panel) wrote new SQL directly into the active tab via
+  // loadSqlFromHistory(). The tab id has NOT changed, so the tab-switch effect
+  // above won't fire. We read tabs[activeTabIndex].sql (just updated in the
+  // store by that action) and dispatch a CodeMirror document-replacement
+  // transaction so the editor reflects the change immediately.
+  //
+  // WHY a separate effect keyed on loadNonce instead of reusing [tabId]:
+  //   tabId only changes on tab switches. loadNonce changes on in-place SQL
+  //   injections within the same tab. Merging them would require tabId to
+  //   change every time the history panel injects SQL, which would be wrong.
+  //
+  // WHY we skip nonce === 0:
+  //   Every tab starts at loadNonce: 0. We don't want the effect to fire
+  //   on initial mount or on tab switches (the tab-switch effect handles those).
+  //   A nonce of 0 means "never been externally loaded", so we bail early.
+  useEffect(() => {
+    if (loadNonce === 0) return;
+
+    const view = viewRef.current;
+    if (!view) return;
+
+    const newSql = tabs[activeTabIndex]?.sql ?? "";
+    const currentSql = view.state.doc.toString();
+
+    // Guard: skip if the editor already shows the correct content. This
+    // prevents a spurious undo-history entry when the injected SQL happens
+    // to match what the user had already typed.
+    if (newSql === currentSql) return;
+
+    view.dispatch({
+      changes: { from: 0, to: currentSql.length, insert: newSql },
+      // Reset cursor to start so the view doesn't scroll to a stale position.
+      selection: { anchor: 0 },
+    });
+  // loadNonce is the trigger; tabs + activeTabIndex supply the content.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadNonce]);
 
   return (
     // The div that CodeMirror mounts into. w-full h-full makes it fill the

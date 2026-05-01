@@ -32,6 +32,32 @@
 import { useRef, useCallback } from "react";
 import { useAppStore, makeTab } from "../../stores/app";
 
+// ===== ICONS =====
+
+/**
+ * ClockIcon — minimal SVG clock used on the History toggle button.
+ * Inline SVG costs zero bytes of extra bundle vs. an icon library import.
+ * 16×16 viewBox, 1.5px stroke, currentColor so Tailwind color utilities apply.
+ */
+function ClockIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 5v3l2 2" />
+    </svg>
+  );
+}
+
 // ===== COMPONENT =====
 
 /**
@@ -50,6 +76,12 @@ export function EditorTabs() {
   const addTab = useAppStore((s) => s.addTab);
   const removeTab = useAppStore((s) => s.removeTab);
   const setActiveTabIndex = useAppStore((s) => s.setActiveTabIndex);
+
+  // ── History panel toggle ─────────────────────────────────────────────────
+  // historyOpen drives the button's active styling; toggleHistory is called
+  // on click and also wired to Cmd+H in App.tsx.
+  const historyOpen = useAppStore((s) => s.historyOpen);
+  const toggleHistory = useAppStore((s) => s.toggleHistory);
 
   // ── Tab counter ──────────────────────────────────────────────────────────
   // Monotonically increasing counter so new tabs always get unique "Query N"
@@ -171,6 +203,32 @@ export function EditorTabs() {
       >
         {/* Plus icon — rendered as text for zero bundle cost. */}
         <span className="text-[14px] leading-none">+</span>
+      </button>
+
+      {/* ── HISTORY TOGGLE BUTTON ────────────────────────────────────────── */}
+      {/*
+        Right-aligned, separated from the "+" by a left border.
+        Active state: brighter text + accent bottom border + slightly lighter bg,
+        matching the visual language used for active editor tabs.
+        Cmd+H is the keyboard equivalent (wired in App.tsx).
+      */}
+      <button
+        onClick={toggleHistory}
+        className={[
+          "flex items-center gap-1.5 px-2.5 h-full shrink-0",
+          "border-l border-[#1f2033] transition-colors duration-100",
+          "focus-visible:outline-none cursor-pointer text-[11px] font-medium",
+          "border-b-2",
+          historyOpen
+            ? "bg-[#0a0a0f] text-[#ededf0] border-b-[#5b6ad6]"
+            : "bg-[#080810] text-[#4b5563] border-b-transparent hover:bg-[#0d0d1a] hover:text-[#9ca3af]",
+        ].join(" ")}
+        title="Toggle query history (⌘H)"
+        aria-label="Toggle query history panel"
+        aria-pressed={historyOpen}
+      >
+        <ClockIcon />
+        <span>History</span>
       </button>
 
     </div>

@@ -66,6 +66,15 @@ export interface Tab {
   loading: boolean;
   /** Which result panel view is active for this tab. */
   viewMode: ViewMode;
+  /**
+   * Monotonically increasing counter, incremented by loadSqlFromHistory().
+   * SqlEditor watches this via a dedicated effect: when it ticks up, the
+   * effect dispatches a CodeMirror document-replacement transaction so the
+   * editor reflects the newly loaded SQL without the user having to switch
+   * tabs. This separates "external SQL injection" from normal keystrokes,
+   * which flow in the opposite direction (editor → store via onChange).
+   */
+  loadNonce: number;
 }
 
 /**
@@ -135,6 +144,12 @@ interface AppState {
   /** Query history list, newest first. Capped at 200 entries. */
   history: HistoryEntry[];
 
+  /**
+   * Whether the query history push-panel is visible.
+   * Toggled by the History button in EditorTabs and by Cmd+H.
+   */
+  historyOpen: boolean;
+
   // ── Actions ────────────────────────────────────────────────────────────────
 
   /** Called by StatusBar once /api/status resolves (or rejects). */
@@ -196,6 +211,18 @@ interface AppState {
 
   /** Wipes the history list. */
   clearHistory: () => void;
+
+  /** Flips the history push-panel open or closed. */
+  toggleHistory: () => void;
+
+  /**
+   * Loads SQL into a tab from an external source (history panel, schema preview).
+   * Updates tab.sql AND increments tab.loadNonce so that SqlEditor's dedicated
+   * effect fires and replaces the CodeMirror document — without a tab switch and
+   * without a visible flash. Normal keystrokes flow editor → store via onChange;
+   * this action flows store → editor via the nonce, keeping the two paths separate.
+   */
+  loadSqlFromHistory: (id: string, sql: string) => void;
 }
 
 // ===== STORE CREATION =====
@@ -210,7 +237,7 @@ interface AppState {
  */
 /** Helper that produces a blank Tab value with sensible defaults. */
 function makeTab(id: string, title: string, sql = ""): Tab {
-  return { id, title, sql, result: null, error: null, loading: false, viewMode: "grid" };
+  return { id, title, sql, result: null, error: null, loading: false, viewMode: "grid", loadNonce: 0 };
 }
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -229,6 +256,9 @@ export const useAppStore = create<AppState>()((set) => ({
   activeTabIndex: 0,
 
   history: [],
+
+  // History panel closed by default; toggled by the tab-bar button or Cmd+H.
+  historyOpen: false,
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
@@ -291,6 +321,17 @@ export const useAppStore = create<AppState>()((set) => ({
     })),
 
   clearHistory: () => set({ history: [] }),
+
+  toggleHistory: () => set((state) => ({ historyOpen: !state.historyOpen })),
+
+  loadSqlFromHistory: (id, sql) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        // Increment loadNonce so SqlEditor's dedicated effect fires and
+        // replaces the CodeMirror document with the new SQL string.
+        t.id === id ? { ...t, sql, loadNonce: t.loadNonce + 1 } : t
+      ),
+    })),
 }));
 
 // Export makeTab so EditorTabs.tsx can create fully-typed Tab objects.
