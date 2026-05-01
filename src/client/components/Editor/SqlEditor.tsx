@@ -165,16 +165,22 @@ interface SqlEditorProps {
   onRun: (sql: string) => void;
   /**
    * Called on every keystroke with the current editor content.
-   * Use this to keep the Zustand tab store (tab.sql) in sync with the editor.
+   * Wires into the Zustand updateTab action so tab.sql stays in sync.
    */
   onChange?: (sql: string) => void;
   /**
-   * The SQL content to populate on first mount.
-   * Changes to this prop after mount are intentionally ignored — CodeMirror
-   * owns the editor state. To programmatically reset the document, expose an
-   * imperative handle via useImperativeHandle (out of scope for Phase 1).
+   * The SQL content to show on first mount.
+   * After mount, the editor owns its document — prop changes are ignored
+   * EXCEPT when `tabId` changes (tab switch), which resets the document to
+   * the new tab's stored SQL via a dedicated effect below.
    */
   initialDoc?: string;
+  /**
+   * The id of the currently active tab.
+   * When this changes the editor replaces its document with the SQL stored
+   * in the new tab, preserving the cursor at position 0.
+   */
+  tabId?: string | undefined;
 }
 
 // ===== COMPONENT =====
@@ -195,13 +201,15 @@ export function SqlEditor({
   onRun,
   onChange,
   initialDoc = "",
+  tabId,
 }: SqlEditorProps) {
-  // ── Zustand: subscribe to the live schema map ─────────────────────────────
-  // schemaMap is null on first render (schema not yet fetched) and populated
-  // once useSchema completes in App.tsx.  We subscribe here so that this
-  // component re-renders when the schema lands, triggering the reconfigure
-  // effect below.
+  // ── Zustand: schema map + active tab SQL ──────────────────────────────────
+  // schemaMap: null until useSchema completes; triggers the reconfigure effect.
+  // tabs + activeTabIndex: used in the tab-switch effect to load the new tab's
+  // stored SQL into the editor document when tabId changes.
   const schemaMap = useAppStore((s) => s.schemaMap);
+  const tabs = useAppStore((s) => s.tabs);
+  const activeTabIndex = useAppStore((s) => s.activeTabIndex);
 
   // The <div> that CM will mount its DOM tree into.
   const containerRef = useRef<HTMLDivElement>(null);
@@ -366,6 +374,40 @@ export function SqlEditor({
       effects: sqlCompartment.reconfigure(sqlExtension),
     });
   }, [schemaMap, sqlCompartment]);
+
+  // ── Tab-switch effect ─────────────────────────────────────────────────────
+  // Runs when tabId changes (i.e. the user clicked a different tab).
+  // Replaces the CodeMirror document with the SQL stored in the newly active
+  // tab, placing the cursor at position 0 so the view doesn't jump mid-document.
+  //
+  // WHY we use a dispatch transaction instead of recreating the editor:
+  //   Recreating would blow away the undo history and flash the editor.
+  //   A replaceWith transaction swaps only the document content — the schema
+  //   compartment, theme, and keymaps all survive intact.
+  //
+  // WHY we read from tabs[activeTabIndex].sql instead of closing over tabId:
+  //   tabId changing is the signal to reload; the content source of truth is
+  //   the store (tabs array), not a separate prop.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    const newSql = tabs[activeTabIndex]?.sql ?? "";
+    const currentSql = view.state.doc.toString();
+
+    // Skip the dispatch if the content is already identical — avoids a
+    // spurious history entry and an unnecessary re-render cycle.
+    if (newSql === currentSql) return;
+
+    view.dispatch({
+      changes: { from: 0, to: currentSql.length, insert: newSql },
+      // Reset cursor to start of document so the view doesn't scroll to a
+      // position that doesn't exist in the newly loaded SQL.
+      selection: { anchor: 0 },
+    });
+  // tabId is the trigger; tabs + activeTabIndex provide the content to load.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabId]);
 
   return (
     // The div that CodeMirror mounts into. w-full h-full makes it fill the

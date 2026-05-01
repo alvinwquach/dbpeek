@@ -19,6 +19,7 @@
 
 import { create } from "zustand";
 import type { SchemaMap, SchemaColumns } from "../hooks/useSchema";
+import type { QueryResult } from "../types";
 
 // ===== EXPORTED TYPES =====
 // These are defined here (alongside the store) because they describe the shape
@@ -43,13 +44,28 @@ export interface StatusResponse {
 export type ViewMode = "grid" | "chart" | "explain";
 
 /**
- * A single editor tab. Each tab has its own SQL buffer.
- * Tabs are not persisted — they are lost on page close.
+ * A single editor tab. Each tab owns its SQL buffer, query result, error
+ * message, loading state, and view mode independently. Switching tabs
+ * restores the full state of the previous session without re-fetching.
+ *
+ * WHY result/error/loading live here instead of in a local hook:
+ *   useQueryExecution previously held these as local useState values, which
+ *   meant switching tabs would always show a blank result panel. Moving them
+ *   into the store lets each tab keep its last result visible across switches.
  */
 export interface Tab {
   id: string;
   title: string;
+  /** Live SQL content, kept in sync with the CodeMirror document on every keystroke. */
   sql: string;
+  /** The most recent successful query result for this tab, or null if none yet. */
+  result: QueryResult | null;
+  /** Human-readable error from the most recent failed execution, or null. */
+  error: string | null;
+  /** True while a query fetch is in-flight for this tab. */
+  loading: boolean;
+  /** Which result panel view is active for this tab. */
+  viewMode: ViewMode;
 }
 
 /**
@@ -110,9 +126,6 @@ interface AppState {
   /** Human-readable error message if the schema fetch failed, null otherwise. */
   schemaError: string | null;
 
-  /** Active result view mode. Grid is the default. */
-  currentView: ViewMode;
-
   /** All open editor tabs. Always has at least one entry. */
   tabs: Tab[];
 
@@ -149,14 +162,24 @@ interface AppState {
   /** Called by useSchema to surface a fetch error. */
   setSchemaError: (error: string | null) => void;
 
-  /** Switches the result panel between grid, chart, and explain views. */
-  setCurrentView: (view: ViewMode) => void;
-
   /** Appends a new tab and activates it. */
   addTab: (tab: Tab) => void;
 
-  /** Updates the title or SQL of an existing tab (identified by id). */
-  updateTab: (id: string, updates: Partial<Pick<Tab, "title" | "sql">>) => void;
+  /** Updates the title, SQL, or viewMode of an existing tab (identified by id). */
+  updateTab: (id: string, updates: Partial<Pick<Tab, "title" | "sql" | "viewMode">>) => void;
+
+  /**
+   * Writes the query execution state (loading, result, error) back into a tab.
+   * Called by useQueryExecution so each tab independently tracks its last result.
+   *
+   * WHY a dedicated action instead of three updateTab calls:
+   *   A single set() call is an atomic Zustand update — subscribers see one
+   *   consistent snapshot instead of three rapid intermediate states.
+   */
+  setTabQueryState: (
+    id: string,
+    state: { loading: boolean; result: QueryResult | null; error: string | null }
+  ) => void;
 
   /**
    * Removes a tab by id. If the active tab is removed, the tab immediately
@@ -185,11 +208,15 @@ interface AppState {
  * every call site.
  * [source: Zustand — Creating a Store with State & Actions]
  */
+/** Helper that produces a blank Tab value with sensible defaults. */
+function makeTab(id: string, title: string, sql = ""): Tab {
+  return { id, title, sql, result: null, error: null, loading: false, viewMode: "grid" };
+}
+
 export const useAppStore = create<AppState>()((set) => ({
   // ── Initial state ───────────────────────────────────────────────────────────
 
   connectionInfo: null,
-  currentView: "grid",
 
   schemaMap: null,
   schemaColumns: null,
@@ -198,7 +225,7 @@ export const useAppStore = create<AppState>()((set) => ({
   schemaError: null,
 
   // Start with one blank tab so the editor is never empty.
-  tabs: [{ id: crypto.randomUUID(), title: "Query 1", sql: "" }],
+  tabs: [makeTab(crypto.randomUUID(), "Query 1")],
   activeTabIndex: 0,
 
   history: [],
@@ -208,15 +235,10 @@ export const useAppStore = create<AppState>()((set) => ({
   setConnectionInfo: (info) => set({ connectionInfo: info }),
 
   setSchema: (map, columns, rowCounts) =>
-    set({
-      schemaMap: map,
-      schemaColumns: columns,
-      schemaRowCounts: rowCounts,
-    }),
+    set({ schemaMap: map, schemaColumns: columns, schemaRowCounts: rowCounts }),
+
   setSchemaLoading: (loading) => set({ schemaLoading: loading }),
   setSchemaError: (error) => set({ schemaError: error }),
-
-  setCurrentView: (view) => set({ currentView: view }),
 
   addTab: (tab) =>
     set((state) => ({
@@ -228,6 +250,13 @@ export const useAppStore = create<AppState>()((set) => ({
   updateTab: (id, updates) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+    })),
+
+  setTabQueryState: (id, queryState) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === id ? { ...t, ...queryState } : t
+      ),
     })),
 
   removeTab: (id) =>
@@ -263,3 +292,6 @@ export const useAppStore = create<AppState>()((set) => ({
 
   clearHistory: () => set({ history: [] }),
 }));
+
+// Export makeTab so EditorTabs.tsx can create fully-typed Tab objects.
+export { makeTab };
