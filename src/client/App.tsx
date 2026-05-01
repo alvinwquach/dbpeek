@@ -80,7 +80,7 @@ export default function App() {
   // execute() writes results into the active tab in the store.
   // App.tsx no longer owns loading/result/error as local state — they come
   // from the active tab selector below.
-  const { execute } = useQueryExecution();
+  const { execute, cancel } = useQueryExecution();
 
   // ── EXPLAIN execution ───────────────────────────────────────────────────────
   // Parallel pipeline to execute() — explain() writes its result into a
@@ -188,6 +188,18 @@ export default function App() {
     updateTab(activeTab.id, { viewMode: "explain" });
     void explain(activeTab.sql ?? "");
   }, [activeTab, updateTab, explain]);
+
+  /**
+   * handleCancelClick — cancels the in-flight query.
+   *
+   * Delegates entirely to cancel() from useQueryExecution, which:
+   *   1. Fires POST /api/query/cancel (fire-and-forget) to kill the DB-side process.
+   *   2. Calls AbortController.abort() so the pending fetch throws an AbortError,
+   *      which the hook's catch block handles by clearing loading without an error.
+   */
+  const handleCancelClick = useCallback(() => {
+    cancel();
+  }, [cancel]);
 
   /**
    * handleFormatClick — formats the active tab's SQL by uppercasing keywords
@@ -364,15 +376,23 @@ export default function App() {
                   {activeTab?.explainLoading ? "Planning…" : "Explain"}
                 </button>
 
-                {/* Run button — alternative to Cmd/Ctrl+Enter */}
+                {/*
+                  Run / Cancel button — toggles between run and cancel modes.
+                  While loading: red Cancel button that kills the in-flight query.
+                  While idle:    blue Run button that fires the query.
+                  The button is never disabled — when loading it becomes Cancel.
+                */}
                 <button
-                  onClick={handleRunButtonClick}
-                  disabled={activeTab?.loading ?? false}
-                  className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#7c85d6] border border-[#2a2a4a] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100 select-none"
-                  title="Run query (Cmd+Enter)"
+                  onClick={activeTab?.loading ? handleCancelClick : handleRunButtonClick}
+                  className={
+                    activeTab?.loading
+                      ? "flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#2d1515] hover:bg-[#3d1a1a] active:bg-[#4a1f1f] text-[#f87171] border border-[#5a2020] transition-colors duration-100 select-none"
+                      : "flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#7c85d6] border border-[#2a2a4a] transition-colors duration-100 select-none"
+                  }
+                  title={activeTab?.loading ? "Cancel query" : "Run query (Cmd+Enter)"}
                 >
                   {activeTab?.loading ? (
-                    "Running…"
+                    "Cancel"
                   ) : (
                     <>
                       <span>
