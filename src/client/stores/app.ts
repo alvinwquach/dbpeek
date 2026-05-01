@@ -20,6 +20,7 @@
 import { create } from "zustand";
 import type { SchemaMap, SchemaColumns } from "../hooks/useSchema";
 import type { QueryResult } from "../types";
+import type { ExplainResponse } from "../hooks/useExplain";
 
 // ===== EXPORTED TYPES =====
 // These are defined here (alongside the store) because they describe the shape
@@ -75,6 +76,18 @@ export interface Tab {
    * which flow in the opposite direction (editor → store via onChange).
    */
   loadNonce: number;
+
+  // ── EXPLAIN state ──────────────────────────────────────────────────────────
+  // Mirrors the result/error/loading triplet above but for POST /api/explain.
+  // Kept per-tab so switching tabs restores the last EXPLAIN view without a
+  // re-fetch (same survivability rationale as the query result fields).
+
+  /** Most recent EXPLAIN response for this tab, or null if none yet. */
+  explainData: ExplainResponse | null;
+  /** Most recent EXPLAIN error message for this tab, or null. */
+  explainError: string | null;
+  /** True while POST /api/explain is in flight for this tab. */
+  explainLoading: boolean;
 }
 
 /**
@@ -197,6 +210,24 @@ interface AppState {
   ) => void;
 
   /**
+   * Writes the EXPLAIN execution state into a tab. Mirror of setTabQueryState
+   * for the parallel /api/explain pipeline.
+   *
+   * WHY a separate action and not a single set-anything-on-tab action:
+   *   Keeping query state and explain state on separate actions makes the
+   *   call sites in useQuery and useExplain self-documenting — each hook
+   *   touches exactly one slice and cannot accidentally clobber the other.
+   */
+  setTabExplainState: (
+    id: string,
+    state: {
+      loading: boolean;
+      data: ExplainResponse | null;
+      error: string | null;
+    }
+  ) => void;
+
+  /**
    * Removes a tab by id. If the active tab is removed, the tab immediately
    * to the left (or the new last tab) becomes active. Refuses to remove the
    * final tab — the editor always shows at least one tab.
@@ -237,7 +268,22 @@ interface AppState {
  */
 /** Helper that produces a blank Tab value with sensible defaults. */
 function makeTab(id: string, title: string, sql = ""): Tab {
-  return { id, title, sql, result: null, error: null, loading: false, viewMode: "grid", loadNonce: 0 };
+  return {
+    id,
+    title,
+    sql,
+    result: null,
+    error: null,
+    loading: false,
+    viewMode: "grid",
+    loadNonce: 0,
+    // EXPLAIN state starts empty — populated by useExplain when the user clicks
+    // the Explain button. Persists across tab switches so the user can compare
+    // the plan with the result without losing either.
+    explainData: null,
+    explainError: null,
+    explainLoading: false,
+  };
 }
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -286,6 +332,20 @@ export const useAppStore = create<AppState>()((set) => ({
     set((state) => ({
       tabs: state.tabs.map((t) =>
         t.id === id ? { ...t, ...queryState } : t
+      ),
+    })),
+
+  setTabExplainState: (id, explainState) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              explainLoading: explainState.loading,
+              explainData: explainState.data,
+              explainError: explainState.error,
+            }
+          : t
       ),
     })),
 

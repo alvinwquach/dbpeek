@@ -19,6 +19,7 @@ import type { ConnectionConfig } from "../../types/connection.js";
 import { createQueryRouter } from "./query.js";
 import { createStatusRouter } from "./status.js";
 import { createSchemaRouter } from "./schema/index.js";
+import { createExplainRouter } from "./explain/index.js";
 
 /**
  * Mounts all API route handlers onto the Express app.
@@ -82,4 +83,20 @@ export function registerRoutes(
   // full config because it dispatches per dialect (Postgres / MySQL / SQLite
   // / MSSQL each query their own metadata catalogs).
   app.use("/api/schema", createSchemaRouter(config, db));
+
+  // ── EXPLAIN plan visualization ─────────────────────────────────────────────
+  //
+  // POST /api/explain wraps the user's SQL in the dialect-specific EXPLAIN
+  // command (EXPLAIN (FORMAT JSON) on Postgres, EXPLAIN FORMAT=JSON on MySQL,
+  // EXPLAIN QUERY PLAN on SQLite, SET SHOWPLAN_XML on MSSQL) and returns a
+  // dialect-agnostic { type, table, cost, rows, children[] } tree the UI
+  // renders as an indented tree with cost-coloured bars.
+  //
+  // The router needs `dialect` (to dispatch the right command + parser) and
+  // `permissionMode` (so EXPLAIN of a write/DDL statement is refused under
+  // --readonly the same way a bare write would be).
+  app.use(
+    "/api/explain",
+    createExplainRouter(db, config.dialect, config.permissionMode)
+  );
 }
