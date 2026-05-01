@@ -165,6 +165,27 @@ interface AppState {
    */
   historyOpen: boolean;
 
+  /**
+   * Set of table names the user has pinned via right-click → "Pin to top".
+   * Pinned tables are hoisted above the alphabetical list in SchemaTree.
+   *
+   * WHY a Set (not an ordered array):
+   *   Insertion order inside the Pinned section doesn't matter — the section
+   *   is always sorted alphabetically just like the main list. Set gives O(1)
+   *   membership checks and eliminates any risk of duplicates.
+   *
+   * WHY Zustand (not local state in SchemaTree):
+   *   If we ever add a "pinned" indicator elsewhere (e.g. a tab badge, a
+   *   keyboard shortcut to jump to pinned tables) the store is already the
+   *   right scope. Local state would require prop-drilling or a separate
+   *   context. Zustand is zero cost for a Set<string>.
+   *
+   * NOTE: Session-only — cleared when the browser tab closes. Intentional:
+   *   dbpeek is a read-explore-discard tool; pins are ephemeral bookmarks,
+   *   not persistent configuration.
+   */
+  pinnedTables: Set<string>;
+
   // ── Actions ────────────────────────────────────────────────────────────────
 
   /** Called by StatusBar once /api/status resolves (or rejects). */
@@ -249,6 +270,18 @@ interface AppState {
   toggleHistory: () => void;
 
   /**
+   * Adds a table to the pinned set, hoisting it into the "Pinned" section
+   * of SchemaTree. No-op if the table is already pinned.
+   */
+  pinTable: (tableName: string) => void;
+
+  /**
+   * Removes a table from the pinned set, returning it to the main list.
+   * No-op if the table is not currently pinned.
+   */
+  unpinTable: (tableName: string) => void;
+
+  /**
    * Loads SQL into a tab from an external source (history panel, schema preview).
    * Updates tab.sql AND increments tab.loadNonce so that SqlEditor's dedicated
    * effect fires and replaces the CodeMirror document — without a tab switch and
@@ -308,6 +341,9 @@ export const useAppStore = create<AppState>()((set) => ({
 
   // History panel closed by default; toggled by the tab-bar button or Cmd+H.
   historyOpen: false,
+
+  // No tables pinned at startup.
+  pinnedTables: new Set<string>(),
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
@@ -386,6 +422,24 @@ export const useAppStore = create<AppState>()((set) => ({
   clearHistory: () => set({ history: [] }),
 
   toggleHistory: () => set((state) => ({ historyOpen: !state.historyOpen })),
+
+  pinTable: (tableName) =>
+    set((state) => {
+      // Guard: do nothing if already pinned — avoids a needless Set clone.
+      if (state.pinnedTables.has(tableName)) return state;
+      const next = new Set(state.pinnedTables);
+      next.add(tableName);
+      return { pinnedTables: next };
+    }),
+
+  unpinTable: (tableName) =>
+    set((state) => {
+      // Guard: do nothing if not pinned — avoids a needless Set clone.
+      if (!state.pinnedTables.has(tableName)) return state;
+      const next = new Set(state.pinnedTables);
+      next.delete(tableName);
+      return { pinnedTables: next };
+    }),
 
   loadSqlFromHistory: (id, sql) =>
     set((state) => ({
