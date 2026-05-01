@@ -22,6 +22,7 @@
 
 import type { QueryResult } from "../../types";
 import { ResultsTable } from "./ResultsTable";
+import { EmptyState } from "./EmptyState";
 
 // ===== HELPERS =====
 
@@ -90,12 +91,13 @@ export function DataGrid({ result, error, loading }: DataGridProps) {
   }
 
   // ── No query run yet ───────────────────────────────────────────────────────
+  // Replaces the previous static "Run a query to see results" hint with the
+  // schema-driven EmptyState. EmptyState handles its own fallbacks (schema
+  // still loading, editor non-empty, schema with no tables) and renders the
+  // same quiet message in those cases — so DataGrid simply hands control off
+  // and lets EmptyState decide what to draw.
   if (!result) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <p className="text-[#2d3047] text-xs italic">Run a query to see results</p>
-      </div>
-    );
+    return <EmptyState />;
   }
 
   // ── Non-SELECT statement (INSERT / UPDATE / DELETE / CREATE / …) ───────────
