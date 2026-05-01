@@ -34,6 +34,7 @@ import {
   useMemo,
   useState,
   useCallback,
+  useEffect,
   type ReactNode,
   type CSSProperties,
 } from "react";
@@ -51,6 +52,7 @@ import type { QueryResult } from "../../types";
 import { ResultsHeader } from "./ResultsHeader";
 import { ColumnResizeHandle } from "./ColumnResizeHandle";
 import { SortIndicator } from "./SortIndicator";
+import { CellContextMenu } from "./CellContextMenu";
 
 // ===== CONSTANTS =====
 
@@ -173,6 +175,25 @@ export function ResultsTable({ result }: ResultsTableProps) {
 
   /** TanStack Table sorting state: array of { id: columnId, desc: boolean }. */
   const [sorting, setSorting] = useState<SortingState>([]);
+
+  /**
+   * Tracks which cell is currently highlighted (click-to-select).
+   * Key format: "<rowId>__<colId>" — unique within the current result set.
+   */
+  const [selectedCellKey, setSelectedCellKey] = useState<string | null>(null);
+
+  /**
+   * Controls the "Copied!" toast visibility. true → toast is showing.
+   * Auto-clears after 1.5 s via useEffect below.
+   */
+  const [showCopied, setShowCopied] = useState(false);
+
+  /** Auto-dismiss the "Copied!" toast after 1.5 s. */
+  useEffect(() => {
+    if (!showCopied) return;
+    const timer = setTimeout(() => setShowCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [showCopied]);
 
   /**
    * "onChange" mode: column width updates live as the user drags.
@@ -307,8 +328,34 @@ export function ResultsTable({ result }: ResultsTableProps) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  /** All sorted rows as unknown[][] — passed to CellContextMenu for column copy. */
+  const allRowArrays = useMemo(
+    () => sortedRows.map((row) => row.original._row),
+    [sortedRows]
+  );
+
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden relative">
+      {/*
+        "Copied!" toast — appears briefly after any clipboard write.
+        Positioned absolute top-right so it floats over the table without
+        shifting layout. pointer-events-none prevents it intercepting mouse events.
+      */}
+      {showCopied && (
+        <div
+          className={[
+            "absolute top-2 right-3 z-50 px-3 py-1.5 rounded",
+            "bg-[#1a1a2e] border border-[#2d2d4f] text-[#ededf0]",
+            "text-xs font-mono pointer-events-none",
+            "animate-in fade-in-0 slide-in-from-top-1",
+          ].join(" ")}
+          role="status"
+          aria-live="polite"
+        >
+          Copied!
+        </div>
+      )}
+
       <ResultsHeader result={result} />
 
       {/*
@@ -426,23 +473,51 @@ export function ResultsTable({ result }: ResultsTableProps) {
                       ? parseInt(colId.slice(4), 10)
                       : -1;
                     const isNumeric = colIdx >= 0 && numericColumns.has(colIdx);
+                    const isDataCol = colIdx >= 0;
 
-                    return (
+                    // Unique key for click-to-highlight. Stable within a result set.
+                    const cellKey = `${row.id}__${colId}`;
+                    const isSelected = selectedCellKey === cellKey;
+
+                    const tdElement = (
                       <td
                         key={cell.id}
                         style={{ width: cell.column.getSize() } as CSSProperties}
                         className={[
                           "px-3 py-1.5 whitespace-nowrap overflow-hidden text-ellipsis",
-                          // Numeric columns: right-aligned, amber, tabular figures.
-                          // Tabular-nums gives each digit equal width so decimal points align.
+                          "cursor-default",
                           isNumeric
                             ? "text-right text-[#f59e0b] tabular-nums"
                             : "text-left text-[#ededf0]",
                           colId === "__rownum__" ? "text-[#374151] pr-2" : "",
+                          // Blue highlight on selected cell.
+                          isSelected
+                            ? "bg-[#1a2744] outline outline-1 outline-[#3b82f6]"
+                            : "",
                         ].join(" ")}
+                        onClick={() => {
+                          if (isDataCol) setSelectedCellKey(cellKey);
+                        }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
+                    );
+
+                    // Only data columns get the context menu; the # column does not.
+                    if (!isDataCol) return tdElement;
+
+                    return (
+                      <CellContextMenu
+                        key={cell.id}
+                        cellValue={row.original._row[colIdx]}
+                        colIndex={colIdx}
+                        columns={result.columns}
+                        allRows={allRowArrays}
+                        rowValues={row.original._row}
+                        onCopied={() => setShowCopied(true)}
+                      >
+                        {tdElement}
+                      </CellContextMenu>
                     );
                   })}
                 </tr>
