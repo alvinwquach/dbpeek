@@ -100,20 +100,6 @@ export default function App() {
   const historyOpen = useAppStore((s) => s.historyOpen);
   const toggleHistory = useAppStore((s) => s.toggleHistory);
 
-  // Cmd+H (Mac) / Ctrl+H (Win/Linux) — global shortcut to toggle the panel.
-  // Registered on window so it fires regardless of which element has focus.
-  // preventDefault() stops browsers that use Ctrl+H for "Find & Replace History".
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "h") {
-        e.preventDefault();
-        toggleHistory();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [toggleHistory]);
-
   // ── Panel resize state ───────────────────────────────────────────────────────
   const [editorHeightPct, setEditorHeightPct] = useState(0.4);
   const centerColRef = useRef<HTMLDivElement>(null);
@@ -189,6 +175,30 @@ export default function App() {
   }, [activeTab, updateTab]);
 
   /**
+   * handleRunSelection — runs only the selected text (or full doc if no selection).
+   * Called by Cmd+Shift+Enter in the editor.
+   */
+  const handleRunSelection = useCallback(
+    (sql: string) => {
+      void execute(sql);
+    },
+    [execute]
+  );
+
+  /**
+   * handleToggleLineComment — updates the active tab's SQL with toggled line comments.
+   * Called by Cmd+/ in the editor. The actual toggle is done in SqlEditor
+   * and dispatched directly to CodeMirror; this just syncs the tab.sql.
+   */
+  const handleToggleLineComment = useCallback(
+    (sql: string) => {
+      if (!activeTab) return;
+      updateTab(activeTab.id, { sql });
+    },
+    [activeTab, updateTab]
+  );
+
+  /**
    * handleViewModeToggle — switches the active tab between the grid (rows)
    * and explain (plan) views without re-running anything. Each view keeps its
    * own last result so toggling is instantaneous.
@@ -232,6 +242,34 @@ export default function App() {
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
   }, []);
+
+  // ── Global keyboard shortcuts ──────────────────────────────────────────────
+  // Registered on window so they fire regardless of which element has focus.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey;
+
+      // Cmd+H — toggle history panel
+      if (isMod && e.key === "h") {
+        e.preventDefault();
+        toggleHistory();
+      }
+
+      // Cmd+Shift+F — format SQL
+      if (isMod && e.shiftKey && e.key === "F") {
+        e.preventDefault();
+        handleFormatClick();
+      }
+
+      // Cmd+E — switch to EXPLAIN view
+      if (isMod && e.key === "e") {
+        e.preventDefault();
+        handleExplainClick();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleHistory, handleFormatClick, handleExplainClick]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0a0a0f] text-[#ededf0] overflow-hidden">
@@ -331,6 +369,8 @@ export default function App() {
               <SqlEditor
                 onRun={handleRun}
                 onChange={handleEditorChange}
+                onRunSelection={handleRunSelection}
+                onToggleLineComment={handleToggleLineComment}
                 initialDoc={activeTab?.sql ?? ""}
                 tabId={activeTab?.id}
               />

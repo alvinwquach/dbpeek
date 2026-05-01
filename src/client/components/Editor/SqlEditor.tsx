@@ -85,6 +85,32 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { useAppStore } from "../../stores/app";
 
+// ===== UTILITIES =====
+
+/**
+ * toggleLineComments — toggles SQL line comments (-- prefix) on each line
+ * of the given text. If a line starts with --, it's uncommented. Otherwise
+ * it's commented.
+ */
+function toggleLineComments(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith("--")) {
+        // Remove comment and preserve original indentation
+        const indent = line.match(/^\s*/)?.[0] ?? "";
+        return indent + trimmed.slice(2).trimStart();
+      } else if (trimmed.length > 0) {
+        // Add comment, preserve indentation
+        const indent = line.match(/^\s*/)?.[0] ?? "";
+        return indent + "-- " + trimmed;
+      }
+      return line; // Empty lines stay empty
+    })
+    .join("\n");
+}
+
 // ===== THEME =====
 
 /**
@@ -169,6 +195,15 @@ interface SqlEditorProps {
    */
   onChange?: (sql: string) => void;
   /**
+   * Called with the selected text when Cmd/Shift+Enter is pressed.
+   * If no selection, called with the full document.
+   */
+  onRunSelection?: (sql: string) => void;
+  /**
+   * Called when Cmd+/ is pressed to toggle line comments (-- prefix).
+   */
+  onToggleLineComment?: (sql: string) => void;
+  /**
    * The SQL content to show on first mount.
    * After mount, the editor owns its document — prop changes are ignored
    * EXCEPT when `tabId` changes (tab switch), which resets the document to
@@ -200,6 +235,8 @@ interface SqlEditorProps {
 export function SqlEditor({
   onRun,
   onChange,
+  onRunSelection,
+  onToggleLineComment,
   initialDoc = "",
   tabId,
 }: SqlEditorProps) {
@@ -241,8 +278,16 @@ export function SqlEditor({
   // latest version of the callback without needing to close over it directly.
   const onRunRef = useRef<(sql: string) => void>(onRun);
   const onChangeRef = useRef<((sql: string) => void) | undefined>(onChange);
+  const onRunSelectionRef = useRef<((sql: string) => void) | undefined>(
+    onRunSelection
+  );
+  const onToggleLineCommentRef = useRef<((sql: string) => void) | undefined>(
+    onToggleLineComment
+  );
   onRunRef.current = onRun;
   onChangeRef.current = onChange;
+  onRunSelectionRef.current = onRunSelection;
+  onToggleLineCommentRef.current = onToggleLineComment;
 
   // ── Editor setup ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -305,6 +350,35 @@ export function SqlEditor({
               key: "Mod-Enter",
               run: (v) => {
                 onRunRef.current(v.state.doc.toString());
+                return true;
+              },
+            },
+            // Cmd+Shift+Enter runs only the selected text (or full doc if no selection).
+            {
+              key: "Mod-Shift-Enter",
+              run: (v) => {
+                const selectedText = v.state.sliceDoc(
+                  v.state.selection.main.from,
+                  v.state.selection.main.to
+                );
+                const textToRun = selectedText || v.state.doc.toString();
+                onRunSelectionRef.current?.(textToRun);
+                return true;
+              },
+            },
+            // Cmd+/ toggles line comments (-- prefix) on selected lines.
+            {
+              key: "Mod-/",
+              run: (v) => {
+                const { from, to } = v.state.selection.main;
+                const selectedText = v.state.sliceDoc(from, to);
+                const toggled = toggleLineComments(selectedText);
+                onToggleLineCommentRef.current?.(toggled);
+                // Update the editor with the toggled text
+                v.dispatch({
+                  changes: { from, to, insert: toggled },
+                  selection: { anchor: from },
+                });
                 return true;
               },
             },
