@@ -41,6 +41,7 @@
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import type { QueryResult } from "../../types";
+import { buildExcel } from "./excelExport";
 
 // ===== TYPES =====
 
@@ -264,6 +265,16 @@ export function ExportMenu({ result }: ExportMenuProps) {
     );
   }
 
+  /**
+   * handleExportExcel — builds an Excel workbook from the current result,
+   * detects column types, applies formatting, and triggers a download.
+   * Produces a real .xlsx binary file, not a CSV renamed to .xlsx.
+   */
+  function handleExportExcel() {
+    if (!result) return;
+    buildExcel(result);
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -412,6 +423,31 @@ export function ExportMenu({ result }: ExportMenuProps) {
               JSON
             </span>
             Download JSON
+          </DropdownMenu.Item>
+
+          {/* Visual separator before Excel option */}
+          <DropdownMenu.Separator className="my-1 border-t border-[#1f2033]" />
+
+          {/*
+            Excel Item — triggers Excel (.xlsx) workbook download on select.
+            Uses SheetJS to create a real binary Excel file with proper column
+            type detection, number formatting, and styling.
+          */}
+          <DropdownMenu.Item
+            onSelect={handleExportExcel}
+            className={[
+              "flex items-center gap-2 px-3 py-1.5 text-[11px] font-mono",
+              "text-[#9ca3af] cursor-pointer outline-none select-none",
+              "hover:bg-[#1a1a2e] hover:text-[#ededf0]",
+              "focus:bg-[#1a1a2e] focus:text-[#ededf0]",
+              "transition-colors duration-75 rounded-[2px] mx-1",
+            ].join(" ")}
+          >
+            {/* Excel file type badge */}
+            <span className="text-[9px] font-bold tracking-wider text-[#10b981] bg-[#064e3b] px-1 py-0.5 rounded">
+              XLSX
+            </span>
+            Download Excel
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
