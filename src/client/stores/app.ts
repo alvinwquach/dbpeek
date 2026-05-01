@@ -57,6 +57,8 @@ export type ViewMode = "grid" | "chart" | "explain";
 export interface Tab {
   id: string;
   title: string;
+  /** Base title without row count, used to reset title when SQL changes. */
+  baseTitle: string;
   /** Live SQL content, kept in sync with the CodeMirror document on every keystroke. */
   sql: string;
   /** The most recent successful query result for this tab, or null if none yet. */
@@ -271,6 +273,7 @@ function makeTab(id: string, title: string, sql = ""): Tab {
   return {
     id,
     title,
+    baseTitle: title,
     sql,
     result: null,
     error: null,

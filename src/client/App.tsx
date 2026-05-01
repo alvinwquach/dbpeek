@@ -124,10 +124,19 @@ export default function App() {
    * handleEditorChange — syncs every keystroke into the active tab's sql field
    * in the Zustand store. This ensures the SQL survives tab switches; when the
    * user returns to this tab the editor reloads from tab.sql.
+   *
+   * Also resets the tab title to baseTitle when the user modifies SQL after
+   * a successful query, since the row count is no longer valid.
    */
   const handleEditorChange = useCallback(
     (sql: string) => {
-      if (activeTab) updateTab(activeTab.id, { sql });
+      if (activeTab) {
+        updateTab(activeTab.id, { sql });
+        // Reset title to baseTitle if we have a row count in the title
+        if (activeTab.title !== activeTab.baseTitle) {
+          updateTab(activeTab.id, { title: activeTab.baseTitle });
+        }
+      }
     },
     [activeTab, updateTab]
   );
