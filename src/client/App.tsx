@@ -49,6 +49,7 @@ import { SqlEditor } from "./components/Editor/SqlEditor";
 import { EditorTabs } from "./components/Editor/EditorTabs";
 import { DataGrid } from "./components/Results/DataGrid";
 import { ExplainView } from "./components/Results/ExplainView";
+import { ChartView } from "./components/Results/ChartView";
 import { SchemaTree } from "./components/Schema/SchemaTree";
 import { QueryHistoryPanel } from "./components/History/QueryHistoryPanel";
 import { useQueryExecution } from "./hooks/useQuery";
@@ -173,7 +174,7 @@ export default function App() {
    * own last result so toggling is instantaneous.
    */
   const handleViewModeToggle = useCallback(
-    (mode: "grid" | "explain") => {
+    (mode: "grid" | "chart" | "explain") => {
       if (!activeTab) return;
       updateTab(activeTab.id, { viewMode: mode });
     },
@@ -317,7 +318,11 @@ export default function App() {
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <div className="flex items-center justify-between px-3 h-8 border-b border-[#1f2033] shrink-0">
               <span className="text-[10px] uppercase tracking-widest text-[#4b5563]">
-                {activeTab?.viewMode === "explain" ? "Plan" : "Results"}
+                {activeTab?.viewMode === "explain"
+                  ? "Plan"
+                  : activeTab?.viewMode === "chart"
+                  ? "Chart"
+                  : "Results"}
               </span>
 
               {/*
@@ -331,13 +336,25 @@ export default function App() {
                   type="button"
                   onClick={() => handleViewModeToggle("grid")}
                   className={`px-2 h-5 rounded border transition-colors duration-100 select-none ${
-                    activeTab?.viewMode !== "explain"
+                    activeTab?.viewMode === "grid"
                       ? "bg-[#14142b] text-[#7c85d6] border-[#2a2a4a]"
                       : "bg-transparent text-[#4b5563] border-[#1f2033] hover:text-[#7c85d6]"
                   }`}
                   title="Show row results"
                 >
                   Rows
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleViewModeToggle("chart")}
+                  className={`px-2 h-5 rounded border transition-colors duration-100 select-none ${
+                    activeTab?.viewMode === "chart"
+                      ? "bg-[#14142b] text-[#7c85d6] border-[#2a2a4a]"
+                      : "bg-transparent text-[#4b5563] border-[#1f2033] hover:text-[#7c85d6]"
+                  }`}
+                  title="Show chart visualization"
+                >
+                  Chart
                 </button>
                 <button
                   type="button"
@@ -366,6 +383,12 @@ export default function App() {
                   loading={activeTab?.explainLoading ?? false}
                   error={activeTab?.explainError ?? null}
                   data={activeTab?.explainData ?? null}
+                />
+              ) : activeTab?.viewMode === "chart" ? (
+                <ChartView
+                  result={activeTab?.result ?? null}
+                  error={activeTab?.error ?? null}
+                  loading={activeTab?.loading ?? false}
                 />
               ) : (
                 <DataGrid
