@@ -16,7 +16,7 @@
 import type { Express } from "express";
 import type { Knex } from "../db.js";
 import type { ConnectionConfig } from "../../types/connection.js";
-import { createQueryRouter } from "./query.js";
+import { createQueryRouter } from "./query/index.js";
 import { createStatusRouter } from "./status.js";
 import { createSchemaRouter } from "./schema/index.js";
 import { createExplainRouter } from "./explain/index.js";
@@ -65,7 +65,11 @@ export function registerRoutes(
   //   query namespace later (e.g. POST /api/query/explain) without changing
   //   the registration call. It also keeps the security-critical query handler
   //   isolated to a dedicated module file.
-  app.use("/api/query", createQueryRouter(db, config.permissionMode));
+  // WHY config.dialect is passed alongside permissionMode:
+  //   The query router now needs the dialect to (a) choose the correct
+  //   PID query when pinning a connection for cancel support, and (b)
+  //   choose the correct kill command in POST /api/query/cancel.
+  app.use("/api/query", createQueryRouter(db, config.permissionMode, config.dialect));
 
   // ── Status ─────────────────────────────────────────────────────────────────
   //
