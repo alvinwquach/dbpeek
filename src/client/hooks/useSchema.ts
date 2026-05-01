@@ -150,20 +150,32 @@ export function useSchema(): {
         })
       );
 
-      // Step 3: build the two maps.
-      // schemaMap   → { tableName: string[] }   (for CodeMirror)
-      // schemaColumns → { tableName: ColumnInfo[] } (for the sidebar)
+      // Step 3: build the three maps.
+      // schemaMap       → { tableName: string[] }       (for CodeMirror)
+      // schemaColumns   → { tableName: ColumnInfo[] }   (for the sidebar)
+      // schemaRowCounts → { tableName: number }         (for the sidebar badges)
+      //
+      // WHY rowCounts is built from listData.tables (not the column responses):
+      //   The /api/schema list response carries the row-count estimate per
+      //   table.  The per-table column endpoint does NOT — it focuses on
+      //   columns.  Building rowCounts from listData lets us avoid a fourth
+      //   round-trip and keeps the count alongside the table list it came from.
       const schemaMap: SchemaMap = {};
       const schemaColumns: SchemaColumns = {};
+      const schemaRowCounts: Record<string, number> = {};
 
       for (const { table, columns } of columnResponses) {
         schemaMap[table] = columns.map((c) => c.name);
         schemaColumns[table] = columns;
       }
+      for (const t of listData.tables) {
+        schemaRowCounts[t.name] = t.rowCount;
+      }
 
       // Step 4: write into Zustand.  This triggers the SqlEditor to
-      // reconfigure its autocomplete extension with the live schema.
-      setSchema(schemaMap, schemaColumns);
+      // reconfigure its autocomplete extension with the live schema and
+      // re-renders the sidebar with the populated tree.
+      setSchema(schemaMap, schemaColumns, schemaRowCounts);
     } catch (err) {
       const msg =
         err instanceof Error

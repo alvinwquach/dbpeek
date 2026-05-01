@@ -36,6 +36,7 @@ import { useState, useRef, useCallback } from "react";
 import { StatusBar } from "./components/StatusBar";
 import { SqlEditor } from "./components/Editor/SqlEditor";
 import { DataGrid } from "./components/Results/DataGrid";
+import { SchemaTree } from "./components/Schema/SchemaTree";
 import { useQueryExecution } from "./hooks/useQuery";
 import { useSchema } from "./hooks/useSchema";
 
@@ -163,19 +164,29 @@ export default function App() {
       <div className="flex flex-1 min-h-0">
 
         {/* ── LEFT: SCHEMA SIDEBAR ──────────────────────────────────────── */}
+        {/*
+          The SchemaTree component owns its own header, search input,
+          loading / error / empty states, and the column-stats popover.
+          App.tsx is responsible only for sizing the column and forwarding
+          the preview action — clicking the eye icon on a table row fires
+          `execute("SELECT * FROM <table> LIMIT 100")`.
+
+          WHY the wrapper <aside> still exists:
+            It establishes the fixed sidebar width and the right border that
+            visually separates the sidebar from the editor. Putting that
+            chrome inside SchemaTree would couple the component to the App
+            layout (it could not be reused in a different shell).
+
+          WHY no overflow-y-auto on the aside:
+            SchemaTree manages its own internal scroll container so the
+            search bar can stay pinned while the table list scrolls.
+            overflow-y-auto here would create a second, redundant scrollbar.
+        */}
         <aside
-          className="flex flex-col shrink-0 border-r border-[#1f2033] bg-[#0c0c14] overflow-y-auto"
+          className="flex flex-col shrink-0 border-r border-[#1f2033] bg-[#0c0c14] overflow-hidden"
           style={{ width: SIDEBAR_WIDTH_PX }}
         >
-          {/* Section header */}
-          <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#4b5563] border-b border-[#1f2033] shrink-0">
-            Schema
-          </div>
-
-          {/* Placeholder — will be replaced with schema tree component */}
-          <div className="flex-1 flex items-center justify-center text-[#2d3047] text-xs italic">
-            No schema loaded
-          </div>
+          <SchemaTree onPreview={handleRun} />
         </aside>
 
         {/* ── CENTER: EDITOR + RESULTS (vertical split) ────────────────── */}
