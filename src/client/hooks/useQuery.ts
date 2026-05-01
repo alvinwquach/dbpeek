@@ -19,42 +19,34 @@
  *
  * HOW IT WORKS:
  *   1. Caller invokes `execute(sql)` — typically from the SqlEditor's onRun prop.
- *   2. Hook sets loading=true, clears previous result and error.
- *   3. Sends POST /api/query with { sql } in the body.
- *   4. On success: sets result, pushes a success HistoryEntry to Zustand.
- *   5. On error (HTTP 4xx or network failure): sets error, pushes failure entry.
- *   6. Resets loading=false in the finally block.
+ *   2. Hook reads the active tab id from the Zustand store, then:
+ *        a. Immediately sets loading=true, result=null, error=null on that tab.
+ *        b. Sends POST /api/query with { sql } in the body.
+ *        c. On success: writes result + success history entry into the tab.
+ *        d. On error:   writes error message + failure history entry into the tab.
+ *        e. Finally:    sets loading=false on the tab.
+ *   3. Derived tab state (loading, result, error) is read back by the caller via
+ *      selectors — the hook itself returns only the `execute` function.
+ *
+ * WHY result/error/loading moved from local useState into the Zustand tab:
+ *   Local state was lost on every tab switch, so switching back to a tab that had
+ *   just run a query showed a blank results panel. Per-tab state in the store
+ *   survives tab switches — the results panel instantly restores on re-activation.
  *
  * WHY history is written here (not in the component):
  *   The hook is the only place that knows whether the request succeeded or failed
- *   and what the exact executionTime was. Centralizing the history write keeps
+ *   and what the exact executionTime was. Centralising the history write keeps
  *   the component layer free of that bookkeeping.
  */
 
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import { useAppStore, type HistoryEntry } from "../stores/app";
 
-// ===== TYPES =====
+// Re-export QueryResult from the shared types file so existing callers that
+// import it from this module continue to compile without changes.
+export type { QueryResult } from "../types";
 
-/**
- * The normalized shape of a successful query response from /api/query.
- * Mirrors the server's NormalizedResult + executionTime field.
- *
- * WHY rows-as-arrays (unknown[][]) instead of objects:
- *   The server serializes rows as arrays (not key/value objects) to preserve
- *   column order and to support duplicate column names (e.g. two columns both
- *   named "id" from a JOIN). See src/server/routes/query.ts for details.
- */
-export interface QueryResult {
-  /** Ordered column names, matching the projection in the SELECT clause. */
-  columns: string[];
-  /** Each row is an array of values in the same order as `columns`. */
-  rows: unknown[][];
-  /** Number of rows returned (or rows affected for non-SELECT statements). */
-  rowCount: number;
-  /** Wall-clock milliseconds from request send to first byte, measured server-side. */
-  executionTime: number;
-}
+// ===== INTERNAL TYPES =====
 
 /** Shape of the JSON body for a successful /api/query response (HTTP 200). */
 interface QueryApiSuccess {
@@ -75,30 +67,28 @@ interface QueryApiError {
  * useQueryExecution — imperative hook for running a SQL query.
  *
  * @returns
- *   execute  — async function that fires the query. Safe to call concurrently
- *              (later calls will overwrite earlier state), but the typical usage
- *              is one call at a time (Cmd+Enter while loading is already visible).
- *   loading  — true while the fetch is in-flight.
- *   result   — the normalized result from the last successful execution, or null.
- *   error    — the human-friendly error message from the last failed execution, or null.
+ *   execute — async function that fires the query against the currently active
+ *             tab. Results are written into that tab's slot in the Zustand store,
+ *             so they persist across tab switches.
  *
- * WHY useCallback with [addHistoryEntry] dep:
- *   addHistoryEntry is stable across renders (Zustand actions don't change
- *   reference). useCallback memoizes execute so callers that receive it as a
- *   prop (e.g. SqlEditor's onRun) don't trigger unnecessary re-renders.
+ * Components that need loading / result / error read them directly from the
+ * store via a selector keyed on the active tab id:
+ *   const tab = useAppStore((s) => s.tabs[s.activeTabIndex]);
+ *   tab.loading / tab.result / tab.error
  */
 export function useQueryExecution(): {
   execute: (sql: string) => Promise<void>;
-  loading: boolean;
-  result: QueryResult | null;
-  error: string | null;
 } {
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<QueryResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Pull only the action (stable reference) — not the full history array.
+  // Pull only stable action references — not reactive slices — to avoid
+  // re-renders every time any tab's query state changes.
   const addHistoryEntry = useAppStore((s) => s.addHistoryEntry);
+  const setTabQueryState = useAppStore((s) => s.setTabQueryState);
+
+  // getState() is the Zustand escape hatch for reading state inside a callback
+  // without creating a subscription. We use it inside execute() so we always
+  // capture the tab id that was active at the moment the user pressed Run,
+  // rather than the id at the time the hook was last rendered.
+  const getState = useAppStore.getState;
 
   const execute = useCallback(
     async (sql: string) => {
@@ -109,10 +99,16 @@ export function useQueryExecution(): {
       // the only way to get an empty string here is if the user cleared the editor.
       if (!trimmed) return;
 
-      // Reset state for the new run.
-      setLoading(true);
-      setError(null);
-      setResult(null);
+      // Snapshot the active tab id at the moment Run is pressed.
+      // We pin this id for the entire async lifecycle so that if the user
+      // switches tabs while a query is running, the result lands in the
+      // correct tab (the one that initiated the request), not the new active one.
+      const { tabs, activeTabIndex } = getState();
+      const tabId = tabs[activeTabIndex]?.id;
+      if (!tabId) return;
+
+      // ── Start loading ──────────────────────────────────────────────────────
+      setTabQueryState(tabId, { loading: true, result: null, error: null });
 
       try {
         const response = await fetch("/api/query", {
@@ -128,7 +124,8 @@ export function useQueryExecution(): {
           // ── Query failed (permission denied, syntax error, missing table, …) ──
           const errorMsg =
             "error" in data ? data.error : `HTTP ${response.status}`;
-          setError(errorMsg);
+
+          setTabQueryState(tabId, { loading: false, result: null, error: errorMsg });
 
           const entry: HistoryEntry = {
             id: crypto.randomUUID(),
@@ -141,11 +138,15 @@ export function useQueryExecution(): {
           // ── Query succeeded ────────────────────────────────────────────────
           const successData = data as QueryApiSuccess;
 
-          setResult({
-            columns: successData.columns,
-            rows: successData.rows,
-            rowCount: successData.rowCount,
-            executionTime: successData.executionTime,
+          setTabQueryState(tabId, {
+            loading: false,
+            result: {
+              columns: successData.columns,
+              rows: successData.rows,
+              rowCount: successData.rowCount,
+              executionTime: successData.executionTime,
+            },
+            error: null,
           });
 
           const entry: HistoryEntry = {
@@ -161,8 +162,11 @@ export function useQueryExecution(): {
       } catch (err) {
         // Network failure (no internet, server not running, CORS block, etc.)
         const msg =
-          err instanceof Error ? err.message : "Network error — is the server running?";
-        setError(msg);
+          err instanceof Error
+            ? err.message
+            : "Network error — is the server running?";
+
+        setTabQueryState(tabId, { loading: false, result: null, error: msg });
 
         const entry: HistoryEntry = {
           id: crypto.randomUUID(),
@@ -171,12 +175,10 @@ export function useQueryExecution(): {
           success: false,
         };
         addHistoryEntry(entry);
-      } finally {
-        setLoading(false);
       }
     },
-    [addHistoryEntry]
+    [addHistoryEntry, setTabQueryState, getState]
   );
 
-  return { execute, loading, result, error };
+  return { execute };
 }
