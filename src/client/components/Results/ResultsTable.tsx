@@ -71,6 +71,7 @@ import { ResultsHeader } from "./ResultsHeader";
 import { ColumnResizeHandle } from "./ColumnResizeHandle";
 import { SortIndicator } from "./SortIndicator";
 import { CellContextMenu } from "./CellContextMenu";
+import { ValueViewer } from "./ValueViewer";
 
 // ===== TANSTACK MODULE AUGMENTATION =====
 
@@ -299,6 +300,22 @@ export function ResultsTable({ result }: ResultsTableProps) {
   const [selectedCellKey, setSelectedCellKey] = useState<string | null>(null);
 
   /**
+   * The value and column name of the currently selected cell, shown in the
+   * ValueViewer panel below the grid. Null when no cell is selected or the
+   * panel has been explicitly closed via the ✕ button or Escape.
+   *
+   * WHY separate from selectedCellKey:
+   *   selectedCellKey drives the blue-outline highlight on the cell.
+   *   selectedCell drives the ValueViewer content. They move together when a
+   *   new cell is clicked, but selectedCell can be cleared independently (user
+   *   closes the panel) without removing the cell highlight.
+   */
+  const [selectedCell, setSelectedCell] = useState<{
+    value: unknown;
+    columnName: string;
+  } | null>(null);
+
+  /**
    * Controls the "Copied!" toast visibility. true → toast is showing.
    * Auto-clears after 1.5 s via useEffect below.
    */
@@ -321,6 +338,7 @@ export function ResultsTable({ result }: ResultsTableProps) {
   useEffect(() => {
     setColumnFilters([]);
     setSelectedCellKey(null);
+    setSelectedCell(null);
   }, [result]);
 
   /**
@@ -475,6 +493,17 @@ export function ResultsTable({ result }: ResultsTableProps) {
     setColumnFilters([]);
   }, []);
 
+  /**
+   * handleCloseViewer — clears the selected cell, collapsing the ValueViewer.
+   * Clears both selectedCell (ValueViewer content) and selectedCellKey (cell
+   * highlight) so the UI returns fully to a no-selection state.
+   * Stable via useCallback — passed as the onClose prop to ValueViewer.
+   */
+  const handleCloseViewer = useCallback(() => {
+    setSelectedCell(null);
+    setSelectedCellKey(null);
+  }, []);
+
   // ── Header sort-click handler ──────────────────────────────────────────────
 
   /**
@@ -532,9 +561,16 @@ export function ResultsTable({ result }: ResultsTableProps) {
         Scroll container — the element the virtualizer observes.
         overflow-auto enables both axes; wide result sets need horizontal scroll too.
       */}
+      {/*
+        min-h-0 is critical here: without it, a flex-1 child cannot shrink
+        below its content's natural minimum height. When the ValueViewer panel
+        appears at the bottom, this container must be able to give up 200px of
+        height. min-h-0 overrides the browser's default min-height: auto for
+        flex items and allows the shrink to happen.
+      */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-auto"
+        className="flex-1 min-h-0 overflow-auto"
         style={{ contain: "strict" }}
       >
         {/*
@@ -726,7 +762,16 @@ export function ResultsTable({ result }: ResultsTableProps) {
                             : "",
                         ].join(" ")}
                         onClick={() => {
-                          if (isDataCol) setSelectedCellKey(cellKey);
+                          if (isDataCol) {
+                            setSelectedCellKey(cellKey);
+                            // Open the ValueViewer with this cell's raw value and
+                            // column name. Replaces any previously selected cell.
+                            setSelectedCell({
+                              value: row.original._row[colIdx],
+                              columnName:
+                                result.columns[colIdx] ?? `col_${colIdx}`,
+                            });
+                          }
                         }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -782,6 +827,19 @@ export function ResultsTable({ result }: ResultsTableProps) {
           </div>
         )}
       </div>
+
+      {/*
+        ValueViewer panel — conditionally rendered when a data cell is selected.
+        Sits at the bottom of this flex column. The scroll container above it
+        absorbs the height change via flex-1 min-h-0.
+      */}
+      {selectedCell !== null && (
+        <ValueViewer
+          value={selectedCell.value}
+          columnName={selectedCell.columnName}
+          onClose={handleCloseViewer}
+        />
+      )}
     </div>
   );
 }
