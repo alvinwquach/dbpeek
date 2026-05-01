@@ -107,6 +107,7 @@ export function useQueryExecution(): {
   // re-renders every time any tab's query state changes.
   const addHistoryEntry = useAppStore((s) => s.addHistoryEntry);
   const setTabQueryState = useAppStore((s) => s.setTabQueryState);
+  const updateTab = useAppStore((s) => s.updateTab);
 
   // getState() is the Zustand escape hatch for reading state inside a callback
   // without creating a subscription. We use it inside execute() so we always
@@ -187,6 +188,13 @@ export function useQueryExecution(): {
             error: null,
           });
 
+          // Update tab title to include row count
+          const tab = getState().tabs.find((t) => t.id === tabId);
+          if (tab) {
+            const newTitle = `${tab.baseTitle} (${successData.rowCount} row${successData.rowCount !== 1 ? 's' : ''})`;
+            updateTab(tabId, { title: newTitle });
+          }
+
           const entry: HistoryEntry = {
             id: crypto.randomUUID(),
             sql: trimmed,
@@ -215,7 +223,7 @@ export function useQueryExecution(): {
         addHistoryEntry(entry);
       }
     },
-    [addHistoryEntry, setTabQueryState, getState]
+    [addHistoryEntry, setTabQueryState, getState, updateTab]
   );
 
   return { execute };
