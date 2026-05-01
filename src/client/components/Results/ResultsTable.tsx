@@ -3,7 +3,7 @@
  *
  * WHAT:
  *   The full TanStack Table + TanStack Virtual implementation that renders a
- *   QueryResult as a high-performance, sortable, resizable data grid.
+ *   QueryResult as a high-performance, sortable, resizable, filterable data grid.
  *
  * WHY a separate file from DataGrid.tsx:
  *   DataGrid is a state-router (loading / error / empty / results). Once it
@@ -19,8 +19,22 @@
  *   3. Column resize mode is "onChange" — live updates feel more responsive.
  *   4. Sorting is client-side only (getSortedRowModel). Re-querying with ORDER BY
  *      would be slower than in-memory sort for an already-loaded result set.
- *   5. The virtualizer observes the outer scroll div (not the <tbody>) because
+ *   5. Filtering is client-side only (getFilteredRowModel). Same reasoning: the
+ *      data is already in memory; a WHERE clause round-trip is always slower than
+ *      a JS array scan.
+ *   6. The virtualizer observes the outer scroll div (not the <tbody>) because
  *      only the div has a scrollTop and a measurable height.
+ *
+ * FILTER BEHAVIOR:
+ *   All filtering is handled by dbFilterFn (defined at module level, reused
+ *   across all data columns):
+ *     - 'null'   → show only rows where the cell is NULL
+ *     - '!null'  → show only rows where the cell is NOT NULL
+ *     - Numeric columns: >, <, >=, <= prefix operators for range filtering,
+ *       or bare number for exact match (e.g. '>100', '<=50', '42')
+ *     - Text columns: case-insensitive substring match
+ *   An empty filter string passes all rows through (autoRemove clears the entry
+ *   from columnFilters state so TanStack skips the column entirely).
  *
  * VIRTUAL SCROLL MECHANICS:
  *   The virtualizer maps the scroll container's visible height to a slice of the
@@ -42,10 +56,14 @@ import {
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
+  getFilteredRowModel,
   flexRender,
   type ColumnDef,
   type SortingState,
   type ColumnResizeMode,
+  type ColumnFiltersState,
+  type FilterFn,
+  type Row,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { QueryResult } from "../../types";
@@ -53,6 +71,23 @@ import { ResultsHeader } from "./ResultsHeader";
 import { ColumnResizeHandle } from "./ColumnResizeHandle";
 import { SortIndicator } from "./SortIndicator";
 import { CellContextMenu } from "./CellContextMenu";
+
+// ===== TANSTACK MODULE AUGMENTATION =====
+
+/**
+ * Registers our custom "dbFilter" filter function with TanStack Table's type
+ * system so it can be referenced by string name in ColumnDef.filterFn.
+ *
+ * WHY module augmentation instead of passing the fn directly in ColumnDef:
+ *   Passing an inline fn per-column works but creates a new fn reference on
+ *   every render, causing unnecessary filter recalculations. Registering once
+ *   in filterFns and referencing by name is the idiomatic TanStack pattern.
+ */
+declare module "@tanstack/react-table" {
+  interface FilterFns {
+    dbFilter: FilterFn<unknown>;
+  }
+}
 
 // ===== CONSTANTS =====
 
@@ -156,6 +191,81 @@ function renderCellValue(value: unknown): ReactNode {
   return String(value);
 }
 
+// ===== FILTER FUNCTION =====
+
+/**
+ * dbFilterFn — custom TanStack filter function that handles text, numeric,
+ * and NULL filtering with a single input string per column.
+ *
+ * HOW it works:
+ *   1. Empty/blank filter → always passes (autoRemove will remove it from state)
+ *   2. 'null'  → pass only NULL/undefined cells
+ *   3. '!null' → pass only non-NULL cells
+ *   4. Numeric cell + operator prefix (>, <, >=, <=) → range comparison
+ *   5. Numeric cell + bare number → exact equality
+ *   6. Anything else → case-insensitive substring match on the string representation
+ *
+ * WHY defined at module scope:
+ *   Defining inside the component would create a new function reference on every
+ *   render, causing TanStack to re-run all filters unnecessarily. Module scope
+ *   gives a stable reference.
+ */
+const dbFilterFn: FilterFn<RowData> = (
+  row: Row<RowData>,
+  columnId: string,
+  filterValue: string
+): boolean => {
+  const raw = row.getValue<unknown>(columnId);
+  const filter = filterValue.trim();
+
+  // Empty filter → pass through
+  if (!filter) return true;
+
+  // ── NULL sentinels ────────────────────────────────────────────────────────
+  if (filter === "null") return raw === null || raw === undefined;
+  if (filter === "!null") return raw !== null && raw !== undefined;
+
+  // Non-null cell: NULL cells don't match any other filter term
+  if (raw === null || raw === undefined) return false;
+
+  // ── Numeric operators ─────────────────────────────────────────────────────
+  if (typeof raw === "number") {
+    // Check for >=, <= before > and < to avoid partial matches
+    if (filter.startsWith(">=")) {
+      const n = parseFloat(filter.slice(2));
+      return !isNaN(n) && raw >= n;
+    }
+    if (filter.startsWith("<=")) {
+      const n = parseFloat(filter.slice(2));
+      return !isNaN(n) && raw <= n;
+    }
+    if (filter.startsWith(">")) {
+      const n = parseFloat(filter.slice(1));
+      return !isNaN(n) && raw > n;
+    }
+    if (filter.startsWith("<")) {
+      const n = parseFloat(filter.slice(1));
+      return !isNaN(n) && raw < n;
+    }
+    // Exact numeric match — useful for IDs and integer flags
+    const n = parseFloat(filter);
+    return !isNaN(n) && raw === n;
+  }
+
+  // ── Substring match ────────────────────────────────────────────────────────
+  // Stringify objects (JSONB columns) so users can filter on JSON content.
+  const strVal = typeof raw === "object" ? JSON.stringify(raw) : String(raw);
+  return strVal.toLowerCase().includes(filter.toLowerCase());
+};
+
+/**
+ * autoRemove tells TanStack to drop a column's filter entry from columnFilters
+ * state when the value is empty. Without it, empty inputs remain in state and
+ * TanStack still calls the filter function (a no-op, but wasteful).
+ */
+dbFilterFn.autoRemove = (val: unknown): boolean =>
+  !val || (typeof val === "string" && val.trim() === "");
+
 // ===== COMPONENT =====
 
 /** Props for ResultsTable. */
@@ -177,6 +287,12 @@ export function ResultsTable({ result }: ResultsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
   /**
+   * Column filter state: array of { id: columnId, value: string }.
+   * Controlled externally so we can reset it when the query result changes.
+   */
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+
+  /**
    * Tracks which cell is currently highlighted (click-to-select).
    * Key format: "<rowId>__<colId>" — unique within the current result set.
    */
@@ -194,6 +310,30 @@ export function ResultsTable({ result }: ResultsTableProps) {
     const timer = setTimeout(() => setShowCopied(false), 1500);
     return () => clearTimeout(timer);
   }, [showCopied]);
+
+  /**
+   * Reset column filters whenever the query result changes.
+   *
+   * WHY: filters from a previous query reference old column IDs and would show
+   * misleading "N of M rows" counts on the new result's header. Clearing them
+   * on result change gives users a clean slate for each new query.
+   */
+  useEffect(() => {
+    setColumnFilters([]);
+    setSelectedCellKey(null);
+  }, [result]);
+
+  /**
+   * Scroll back to the top of the table when filters change.
+   *
+   * WHY: if the user has scrolled to row 5000 and then types a filter that
+   * leaves only 20 rows, the virtual items slice will be empty or show row
+   * spacers incorrectly until they scroll up. Resetting scroll on filter change
+   * ensures row 0 is always visible when the filter set changes.
+   */
+  useEffect(() => {
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  }, [columnFilters]);
 
   /**
    * "onChange" mode: column width updates live as the user drags.
@@ -226,7 +366,8 @@ export function ResultsTable({ result }: ResultsTableProps) {
   );
 
   /**
-   * Pre-compute numeric column indices for right-alignment and amber colouring.
+   * Pre-compute numeric column indices for right-alignment, amber colouring,
+   * and filter input placeholder selection.
    * Memoized on result — only recalculated when the query changes.
    */
   const numericColumns = useMemo(
@@ -242,13 +383,19 @@ export function ResultsTable({ result }: ResultsTableProps) {
    * WHY a row-number column first:
    *   Database GUIs universally show row numbers. It helps users navigate large
    *   result sets and correlate sorted rows back to the raw SQL output order.
-   *   The column is non-sortable and non-resizable to act as a stable anchor.
+   *   The column is non-sortable, non-resizable, and non-filterable to act as
+   *   a stable anchor.
    *
    * WHY accessorFn instead of accessorKey:
    *   Our row data is { _row: unknown[], _index: number } — no property named
    *   after each column. accessorFn lets us index _row by column index, the
    *   only option when the schema is unknown at compile time. Column IDs use
    *   "col_<index>" as a suffix to handle duplicate column names from JOINs.
+   *
+   * WHY filterFn: 'dbFilter' on data columns:
+   *   References the custom filter function registered in filterFns below. The
+   *   row-number column explicitly disables filtering since row indices are
+   *   derived values, not data the user would want to search.
    */
   const columns = useMemo<ColumnDef<RowData>[]>(() => {
     const rowNumberCol: ColumnDef<RowData> = {
@@ -264,6 +411,7 @@ export function ResultsTable({ result }: ResultsTableProps) {
       maxSize: ROW_NUMBER_COLUMN_WIDTH,
       enableSorting: false,
       enableResizing: false,
+      enableColumnFilter: false,
     };
 
     const dataCols: ColumnDef<RowData>[] = result.columns.map((colName, colIdx) => ({
@@ -273,6 +421,7 @@ export function ResultsTable({ result }: ResultsTableProps) {
       cell: (info) => renderCellValue(info.getValue()),
       size: DEFAULT_COLUMN_WIDTH,
       minSize: 40,
+      filterFn: "dbFilter",
     }));
 
     return [rowNumberCol, ...dataCols];
@@ -283,10 +432,13 @@ export function ResultsTable({ result }: ResultsTableProps) {
   const table = useReactTable({
     data: tableData,
     columns,
-    state: { sorting },
+    state: { sorting, columnFilters },
     onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    filterFns: { dbFilter: dbFilterFn },
     columnResizeMode,
     enableColumnResizing: true,
   });
@@ -294,13 +446,13 @@ export function ResultsTable({ result }: ResultsTableProps) {
   // ── Virtual row list ───────────────────────────────────────────────────────
 
   /**
-   * Use post-sort rows so the virtualizer window maps to the correct slice
-   * of the sorted (not original) row order.
+   * Post-filter, post-sort rows. The virtualizer maps its window into this
+   * array, so it always reflects the current filter + sort state.
    */
-  const sortedRows = table.getRowModel().rows;
+  const filteredRows = table.getRowModel().rows;
 
   const rowVirtualizer = useVirtualizer({
-    count: sortedRows.length,
+    count: filteredRows.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => ROW_HEIGHT_ESTIMATE,
     overscan: OVERSCAN,
@@ -308,6 +460,20 @@ export function ResultsTable({ result }: ResultsTableProps) {
 
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
+
+  // ── Derived filter state ───────────────────────────────────────────────────
+
+  /**
+   * True when at least one column has an active filter. Used to:
+   *   - Show the filtered row count in the header ("42 of 1 000 rows")
+   *   - Reveal the "Clear filters" button in the header
+   */
+  const hasActiveFilters = columnFilters.length > 0;
+
+  /** Stable callback to clear all column filters at once. */
+  const handleClearFilters = useCallback(() => {
+    setColumnFilters([]);
+  }, []);
 
   // ── Header sort-click handler ──────────────────────────────────────────────
 
@@ -328,10 +494,10 @@ export function ResultsTable({ result }: ResultsTableProps) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  /** All sorted rows as unknown[][] — passed to CellContextMenu for column copy. */
+  /** All filtered+sorted rows as unknown[][] — passed to CellContextMenu for column copy. */
   const allRowArrays = useMemo(
-    () => sortedRows.map((row) => row.original._row),
-    [sortedRows]
+    () => filteredRows.map((row) => row.original._row),
+    [filteredRows]
   );
 
   return (
@@ -356,7 +522,11 @@ export function ResultsTable({ result }: ResultsTableProps) {
         </div>
       )}
 
-      <ResultsHeader result={result} />
+      <ResultsHeader
+        result={result}
+        filteredRowCount={hasActiveFilters ? filteredRows.length : undefined}
+        onClearFilters={hasActiveFilters ? handleClearFilters : undefined}
+      />
 
       {/*
         Scroll container — the element the virtualizer observes.
@@ -377,8 +547,9 @@ export function ResultsTable({ result }: ResultsTableProps) {
           style={{ width: table.getCenterTotalSize(), tableLayout: "fixed" }}
           className="border-collapse text-xs font-mono"
         >
-          {/* ── Sticky header ──────────────────────────────────────────────── */}
+          {/* ── Sticky header (label row + filter row) ──────────────────────── */}
           <thead className="sticky top-0 z-10">
+            {/* ── Column label row ──────────────────────────────────────────── */}
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
@@ -438,6 +609,65 @@ export function ResultsTable({ result }: ResultsTableProps) {
                 })}
               </tr>
             ))}
+
+            {/*
+              ── Filter input row ─────────────────────────────────────────────
+              Sits between the column labels and the data rows. Each cell holds
+              a controlled text input that writes into TanStack's columnFilters
+              state via column.setFilterValue().
+
+              WHY inside <thead>:
+                Both label row and filter row must be sticky together. Placing
+                the filter row inside the same <thead> means the browser treats
+                the whole block as one sticky unit and moves it as a whole.
+            */}
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={`filter-${headerGroup.id}`}>
+                {headerGroup.headers.map((header) => {
+                  // Derive column index from the "col_N" ID pattern used in
+                  // column definitions. The row-number column has id "__rownum__"
+                  // and gets colIdx = -1, meaning it renders no input.
+                  const colIdx = header.column.id.startsWith("col_")
+                    ? parseInt(header.column.id.slice(4), 10)
+                    : -1;
+                  const isDataCol = colIdx >= 0;
+                  const isNumeric = isDataCol && numericColumns.has(colIdx);
+                  const colName = isDataCol ? (result.columns[colIdx] ?? "") : "";
+                  const filterValue = (header.column.getFilterValue() ?? "") as string;
+
+                  return (
+                    <th
+                      key={`filter-${header.id}`}
+                      style={{ width: header.getSize(), position: "relative" } as CSSProperties}
+                      className="px-2 py-1 border-b border-[#1f2033] bg-[#0d0d17]"
+                    >
+                      {isDataCol && (
+                        <input
+                          type="text"
+                          value={filterValue}
+                          onChange={(e) => header.column.setFilterValue(e.target.value)}
+                          placeholder={isNumeric ? ">100" : "Filter…"}
+                          aria-label={`Filter ${colName}`}
+                          className={[
+                            "w-full bg-[#0a0a0f] rounded",
+                            "border",
+                            // Active filter gets a dimmed blue border so users can
+                            // see at a glance which columns are currently filtered.
+                            filterValue
+                              ? "border-[#3b5fa0]"
+                              : "border-[#1f2033]",
+                            "px-2 py-0.5 text-[10px] font-mono",
+                            "text-[#ededf0] placeholder-[#2d3047]",
+                            "focus:outline-none focus:border-[#3b82f6]",
+                            "transition-colors duration-100",
+                          ].join(" ")}
+                        />
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            ))}
           </thead>
 
           {/* ── Virtually scrolled body ─────────────────────────────────────── */}
@@ -458,7 +688,7 @@ export function ResultsTable({ result }: ResultsTableProps) {
             )}
 
             {virtualItems.map((virtualRow) => {
-              const row = sortedRows[virtualRow.index];
+              const row = filteredRows[virtualRow.index];
               if (row == null) return null;
               return (
                 <tr
@@ -543,10 +773,12 @@ export function ResultsTable({ result }: ResultsTableProps) {
           </tbody>
         </table>
 
-        {/* Zero-rows message — a SELECT can succeed but return no rows */}
-        {result.rows.length === 0 && (
+        {/* Zero-rows message — covers both "query returned 0 rows" and "no filter matches" */}
+        {filteredRows.length === 0 && (
           <div className="flex items-center justify-center h-12 text-[#2d3047] text-xs italic font-mono">
-            Query returned 0 rows
+            {hasActiveFilters
+              ? "No rows match the current filters"
+              : "Query returned 0 rows"}
           </div>
         )}
       </div>
