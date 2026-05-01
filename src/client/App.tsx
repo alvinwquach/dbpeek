@@ -56,6 +56,7 @@ import { useQueryExecution } from "./hooks/useQuery";
 import { useExplain } from "./hooks/useExplain";
 import { useSchema } from "./hooks/useSchema";
 import { useAppStore } from "./stores/app";
+import { formatSql } from "./utils/formatSql";
 
 // ===== LAYOUT CONSTANTS =====
 
@@ -178,6 +179,16 @@ export default function App() {
   }, [activeTab, updateTab, explain]);
 
   /**
+   * handleFormatClick — formats the active tab's SQL by uppercasing keywords
+   * and adding newlines after major clauses.
+   */
+  const handleFormatClick = useCallback(() => {
+    if (!activeTab) return;
+    const formatted = formatSql(activeTab.sql ?? "");
+    updateTab(activeTab.id, { sql: formatted });
+  }, [activeTab, updateTab]);
+
+  /**
    * handleViewModeToggle — switches the active tab between the grid (rows)
    * and explain (plan) views without re-running anything. Each view keeps its
    * own last result so toggling is instantaneous.
@@ -259,6 +270,18 @@ export default function App() {
               </span>
 
               <div className="flex items-center gap-2">
+                {/*
+                  Format button — formats the SQL by uppercasing keywords
+                  and adding newlines after major clauses.
+                */}
+                <button
+                  onClick={handleFormatClick}
+                  className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#9ca3af] border border-[#2a2a4a] transition-colors duration-100 select-none"
+                  title="Format SQL"
+                >
+                  Format
+                </button>
+
                 {/*
                   Explain button — issues POST /api/explain for the current SQL
                   and flips the result panel to the plan-tree view. Disabled
