@@ -148,4 +148,43 @@ export const mysqlHandler: SchemaHandler = {
       isIndexed: idxSet.has(c.name),
     }));
   },
+
+  // ===== MYSQL CREATE TABLE VIA SHOW CREATE TABLE =====
+  //
+  // MySQL ships a built-in command that emits the canonical CREATE TABLE
+  // string for any table:
+  //   SHOW CREATE TABLE `tbl`
+  // The result is a one-row, two-column resultset: { Table, "Create Table" }.
+  // The DDL is exactly what mysqldump would write — fully quoted, with
+  // engine, charset, and collation clauses preserved. Reconstructing this
+  // from information_schema would be redundant and likely incomplete; we
+  // pass the engine's own output through unchanged.
+  //
+  // SECURITY: SHOW CREATE TABLE cannot accept bind parameters for the table
+  // name — the grammar requires a literal identifier. The route layer has
+  // already whitelisted `:table` against listTables(), so the value reaching
+  // this query is server-confirmed to exist. We additionally backtick-quote
+  // and escape embedded backticks (`` ` `` → `` `` `` ``) for defense-in-depth
+  // against an exotic table name (legal in MySQL when quoted).
+  async getDdl(db, tableName) {
+    const quoted = "`" + tableName.replace(/`/g, "``") + "`";
+    const result = await db.raw(`SHOW CREATE TABLE ${quoted}`);
+    // The mysql2 driver returns SHOW CREATE TABLE as the standard
+    // [rows, fields] tuple. extractRows pulls the rows array.
+    const rows = extractRows<Record<string, unknown>>(result);
+    const row = rows[0];
+    if (!row) return `-- Table "${tableName}" not found.`;
+
+    // The DDL column is literally named "Create Table" (with a space).
+    // Some driver versions or configs return it under different casing,
+    // so we look for the first key that is not "Table" — that one holds
+    // the DDL string.
+    const ddl = row["Create Table"] ?? row["Create View"];
+    if (typeof ddl === "string") return ddl;
+
+    for (const [key, value] of Object.entries(row)) {
+      if (key !== "Table" && typeof value === "string") return value;
+    }
+    return `-- Could not retrieve DDL for "${tableName}".`;
+  },
 };

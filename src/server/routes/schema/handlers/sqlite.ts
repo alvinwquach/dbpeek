@@ -139,4 +139,48 @@ export const sqliteHandler: SchemaHandler = {
       isIndexed: idxSet.has(c.name),
     }));
   },
+
+  // ===== SQLITE CREATE TABLE VIA sqlite_master.sql =====
+  //
+  // SQLite stores the *original* CREATE TABLE / CREATE INDEX text the user
+  // (or migration tool) typed, in the `sql` column of sqlite_master. There
+  // is nothing to reconstruct: the engine kept the source verbatim, and
+  // PRAGMA-based reconstruction would just paraphrase it less faithfully.
+  //
+  // STRATEGY:
+  //   1. Read sqlite_master where name = ? AND type = 'table' for the table.
+  //   2. Read sqlite_master where tbl_name = ? AND type = 'index' for any
+  //      indexes the user explicitly created (the auto-indexes for PK /
+  //      UNIQUE columns have NULL `sql` and are filtered out by the IS NOT
+  //      NULL check).
+  //   3. Concatenate with blank lines so the result reads naturally.
+  //
+  // Bind parameter is supported here (this is a regular SELECT, not a
+  // PRAGMA), so we use ? rather than inlining the table name.
+  async getDdl(db, tableName) {
+    const tableResult = await db.raw(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      [tableName]
+    );
+    const tableRows = extractRows<{ sql: string | null }>(tableResult);
+    const tableSql = tableRows[0]?.sql;
+    if (!tableSql) return `-- Table "${tableName}" not found.`;
+
+    // User-defined indexes only. Auto-indexes (those backing UNIQUE / PK
+    // declarations on the table itself) have a NULL sql — filtering them
+    // out keeps the output focused on what the user actually wrote.
+    const idxResult = await db.raw(
+      `SELECT sql FROM sqlite_master
+       WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL
+       ORDER BY name`,
+      [tableName]
+    );
+    const idxRows = extractRows<{ sql: string }>(idxResult);
+
+    // sqlite_master.sql does NOT include a trailing semicolon. Append one
+    // per statement so the output is paste-ready into another sqlite session.
+    const parts = [`${tableSql};`];
+    for (const r of idxRows) parts.push(`${r.sql};`);
+    return parts.join("\n\n");
+  },
 };
