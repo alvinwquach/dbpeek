@@ -90,6 +90,20 @@ interface AppState {
    */
   schemaColumns: SchemaColumns | null;
 
+  /**
+   * Table → estimated row count, populated alongside schemaMap by useSchema.
+   * Null = schema not yet loaded.  Used by the sidebar tree to render the
+   * row-count badge next to each table name.
+   *
+   * WHY a separate map instead of nesting inside schemaColumns:
+   *   schemaColumns is keyed on table → columns; bolting `rowCount` onto each
+   *   column entry would duplicate the value N times per table.  A parallel
+   *   map keeps the row count exactly once per table and lets callers select
+   *   only the slice they need (the SqlEditor never reads row counts; the
+   *   sidebar never reads column metadata for collapsed tables).
+   */
+  schemaRowCounts: Record<string, number> | null;
+
   /** True while GET /api/schema (and per-table column fetches) are in-flight. */
   schemaLoading: boolean;
 
@@ -113,8 +127,21 @@ interface AppState {
   /** Called by StatusBar once /api/status resolves (or rejects). */
   setConnectionInfo: (info: StatusResponse | null) => void;
 
-  /** Called by useSchema once all table + column fetches complete. */
-  setSchema: (map: SchemaMap, columns: SchemaColumns) => void;
+  /**
+   * Called by useSchema once all table + column fetches complete.
+   *
+   * WHY rowCounts is a third positional arg rather than rolled into one config
+   * object:
+   *   The action is invoked from exactly one place (useSchema.ts) and the
+   *   three arguments are always passed together.  A config object would add
+   *   ceremony without buying anything — the call site reads cleaner as
+   *   `setSchema(map, columns, rowCounts)` than as `setSchema({ ... })`.
+   */
+  setSchema: (
+    map: SchemaMap,
+    columns: SchemaColumns,
+    rowCounts: Record<string, number>
+  ) => void;
 
   /** Called by useSchema to toggle the in-flight indicator. */
   setSchemaLoading: (loading: boolean) => void;
@@ -166,6 +193,7 @@ export const useAppStore = create<AppState>()((set) => ({
 
   schemaMap: null,
   schemaColumns: null,
+  schemaRowCounts: null,
   schemaLoading: false,
   schemaError: null,
 
@@ -179,8 +207,12 @@ export const useAppStore = create<AppState>()((set) => ({
 
   setConnectionInfo: (info) => set({ connectionInfo: info }),
 
-  setSchema: (map, columns) =>
-    set({ schemaMap: map, schemaColumns: columns }),
+  setSchema: (map, columns, rowCounts) =>
+    set({
+      schemaMap: map,
+      schemaColumns: columns,
+      schemaRowCounts: rowCounts,
+    }),
   setSchemaLoading: (loading) => set({ schemaLoading: loading }),
   setSchemaError: (error) => set({ schemaError: error }),
 

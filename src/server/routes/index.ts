@@ -18,7 +18,7 @@ import type { Knex } from "../db.js";
 import type { ConnectionConfig } from "../../types/connection.js";
 import { createQueryRouter } from "./query.js";
 import { createStatusRouter } from "./status.js";
-import { createSchemaRouter } from "./schema.js";
+import { createSchemaRouter } from "./schema/index.js";
 
 /**
  * Mounts all API route handlers onto the Express app.

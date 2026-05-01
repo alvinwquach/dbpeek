@@ -638,3 +638,232 @@ describe("GET /api/schema/:table — 404 handling", () => {
     expect(data).toEqual({ error: "Table not found: ghost" });
   });
 });
+
+// ===== STATS ENDPOINT TESTS =====
+//
+// These tests cover GET /api/schema/:table/:column/stats. The same string-
+// matching mock pattern as above is used: the test inspects the SQL keyword
+// to decide which Postgres-shaped envelope to return. We exercise three paths:
+//
+//   1. Numeric column (returns distinct, nullPct, min, max, avg).
+//   2. Non-numeric column (returns distinct, nullPct, topValues).
+//   3. Nonexistent column (returns 404).
+//
+// WHY the tests are Postgres-only:
+//   The numeric vs. non-numeric branching and the (table, column) whitelist
+//   logic live in the dialect-agnostic route layer — the per-dialect handler
+//   is only consulted for listTables/describeTable (already covered by the
+//   tests above) and for executing knex.raw on the aggregate SQL (which goes
+//   through the same mock). Re-running the same scenario for all four
+//   dialects would only verify that knex's `??` substitution still works,
+//   which is a knex-internal concern and not the contract this route owns.
+//
+// WHY the mock matchers key on aggregate-specific SQL keywords:
+//   The stats route fires THREE queries (listTables, describeTable subqueries,
+//   plus the aggregate). Matching on "COUNT(DISTINCT" / "MIN(" / "ORDER BY"
+//   distinguishes the aggregate queries from the introspection queries
+//   without coupling the test to call order — same robustness rationale as
+//   the listTables tests.
+
+describe("GET /api/schema/:table/:column/stats — Numeric column", () => {
+  it("returns distinct, nullPct, min, max, avg for an integer column", async () => {
+    // Stub each query the route fires:
+    //   - listTables           → users exists
+    //   - describeTable cols   → "age" of type integer
+    //   - describeTable PK/FK/IX → empty (irrelevant for stats)
+    //   - aggregate base       → distinct=10, total=100, nulls=5
+    //   - aggregate numeric    → min=1, max=99, avg=50.5
+    const db = buildMockDb((sql) => {
+      // listTables (whitelist)
+      if (sql.includes("pg_tables")) {
+        return {
+          rows: [{ name: "users", row_count: "100" }],
+          fields: [],
+        };
+      }
+      // describeTable: column metadata. The "age" column is integer (numeric).
+      if (sql.includes("information_schema.columns")) {
+        return {
+          rows: [
+            {
+              name: "age",
+              type: "integer",
+              nullable: "YES",
+              default_value: null,
+            },
+          ],
+          fields: [],
+        };
+      }
+      // describeTable: PK/FK/index queries — no stats relevance, return empty.
+      if (sql.includes("'PRIMARY KEY'")) return { rows: [], fields: [] };
+      if (sql.includes("'FOREIGN KEY'")) return { rows: [], fields: [] };
+      if (sql.includes("pg_index")) return { rows: [], fields: [] };
+
+      // Aggregate: distinct + null counts. pg returns BIGINT counts as strings;
+      // the route coerces with Number() so the test sends them as strings to
+      // exercise the coercion path.
+      if (sql.includes("COUNT(DISTINCT")) {
+        return {
+          rows: [
+            {
+              distinct_count: "10",
+              total_count: "100",
+              null_count: "5",
+            },
+          ],
+          fields: [],
+        };
+      }
+      // Aggregate: numeric MIN / MAX / AVG. AVG comes back as a numeric string
+      // in pg — again to exercise the coercion path.
+      if (sql.includes("MIN(") && sql.includes("MAX(") && sql.includes("AVG(")) {
+        return {
+          rows: [{ min_v: 1, max_v: 99, avg_v: "50.5" }],
+          fields: [],
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+
+    const { server, port } = await startApp(db, buildConfig("postgres"));
+    openServers.push(server);
+
+    const { status, data } = await getJson(
+      port,
+      "/api/schema/users/age/stats"
+    );
+    expect(status).toBe(200);
+    expect(data).toEqual({
+      distinct: 10,
+      // 5 nulls / 100 total = 5%
+      nullPct: 5,
+      min: 1,
+      max: 99,
+      avg: 50.5,
+    });
+  });
+});
+
+describe("GET /api/schema/:table/:column/stats — String / enum column", () => {
+  it("returns distinct, nullPct, and a topValues array for a text column", async () => {
+    const db = buildMockDb((sql) => {
+      if (sql.includes("pg_tables")) {
+        return {
+          rows: [{ name: "users", row_count: "100" }],
+          fields: [],
+        };
+      }
+      // describeTable: "country" is text (non-numeric → top-values branch).
+      if (sql.includes("information_schema.columns")) {
+        return {
+          rows: [
+            {
+              name: "country",
+              type: "text",
+              nullable: "YES",
+              default_value: null,
+            },
+          ],
+          fields: [],
+        };
+      }
+      if (sql.includes("'PRIMARY KEY'")) return { rows: [], fields: [] };
+      if (sql.includes("'FOREIGN KEY'")) return { rows: [], fields: [] };
+      if (sql.includes("pg_index")) return { rows: [], fields: [] };
+
+      if (sql.includes("COUNT(DISTINCT")) {
+        return {
+          rows: [
+            {
+              distinct_count: "3",
+              total_count: "100",
+              null_count: "10",
+            },
+          ],
+          fields: [],
+        };
+      }
+      // Top-values query. Identified by the GROUP BY + ORDER BY COUNT(*) DESC
+      // + LIMIT 5 signature that appears only in the non-numeric branch.
+      if (
+        sql.includes("ORDER BY COUNT(*) DESC") &&
+        sql.includes("LIMIT 5")
+      ) {
+        return {
+          rows: [
+            { value: "USA", count_v: "50" },
+            { value: "CAN", count_v: "30" },
+            { value: "UK", count_v: "10" },
+          ],
+          fields: [],
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+
+    const { server, port } = await startApp(db, buildConfig("postgres"));
+    openServers.push(server);
+
+    const { status, data } = await getJson(
+      port,
+      "/api/schema/users/country/stats"
+    );
+    expect(status).toBe(200);
+    expect(data).toEqual({
+      distinct: 3,
+      // 10 nulls / 100 total = 10%
+      nullPct: 10,
+      topValues: [
+        { value: "USA", count: 50 },
+        { value: "CAN", count: 30 },
+        { value: "UK", count: 10 },
+      ],
+    });
+  });
+});
+
+describe("GET /api/schema/:table/:column/stats — 404 handling", () => {
+  it("returns 404 when the requested column is not in the table", async () => {
+    // The table exists but only has an "id" column. Asking for /ghost/stats
+    // must hit the column-whitelist check and return 404 — not surface a
+    // database error that would leak schema details.
+    const db = buildMockDb((sql) => {
+      if (sql.includes("pg_tables")) {
+        return {
+          rows: [{ name: "users", row_count: "1" }],
+          fields: [],
+        };
+      }
+      if (sql.includes("information_schema.columns")) {
+        return {
+          rows: [
+            {
+              name: "id",
+              type: "integer",
+              nullable: "NO",
+              default_value: null,
+            },
+          ],
+          fields: [],
+        };
+      }
+      if (sql.includes("'PRIMARY KEY'")) {
+        return { rows: [{ name: "id" }], fields: [] };
+      }
+      if (sql.includes("'FOREIGN KEY'")) return { rows: [], fields: [] };
+      if (sql.includes("pg_index")) return { rows: [], fields: [] };
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+
+    const { server, port } = await startApp(db, buildConfig("postgres"));
+    openServers.push(server);
+
+    const { status, data } = await getJson(
+      port,
+      "/api/schema/users/ghost/stats"
+    );
+    expect(status).toBe(404);
+    expect(data).toEqual({ error: "Column not found: ghost" });
+  });
+});
