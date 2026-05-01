@@ -48,9 +48,11 @@ import { StatusBar } from "./components/StatusBar";
 import { SqlEditor } from "./components/Editor/SqlEditor";
 import { EditorTabs } from "./components/Editor/EditorTabs";
 import { DataGrid } from "./components/Results/DataGrid";
+import { ExplainView } from "./components/Results/ExplainView";
 import { SchemaTree } from "./components/Schema/SchemaTree";
 import { QueryHistoryPanel } from "./components/History/QueryHistoryPanel";
 import { useQueryExecution } from "./hooks/useQuery";
+import { useExplain } from "./hooks/useExplain";
 import { useSchema } from "./hooks/useSchema";
 import { useAppStore } from "./stores/app";
 
@@ -76,6 +78,12 @@ export default function App() {
   // App.tsx no longer owns loading/result/error as local state — they come
   // from the active tab selector below.
   const { execute } = useQueryExecution();
+
+  // ── EXPLAIN execution ───────────────────────────────────────────────────────
+  // Parallel pipeline to execute() — explain() writes its result into a
+  // separate slot on the active tab (explainData/explainError/explainLoading)
+  // so the grid view and the explain view can each remember their last output.
+  const { explain } = useExplain();
 
   // ── Active tab selector ──────────────────────────────────────────────────────
   // Single selector for the whole active tab object so we get one coherent
@@ -142,6 +150,35 @@ export default function App() {
   const handleRunButtonClick = useCallback(() => {
     void execute(activeTab?.sql ?? "");
   }, [execute, activeTab]);
+
+  /**
+   * handleExplainClick — fires POST /api/explain for the active tab's SQL and
+   * switches the result panel into "explain" view mode so the user sees the
+   * loading / tree immediately.
+   *
+   * WHY we toggle viewMode here (not inside useExplain):
+   *   The hook is a pure data layer — it shouldn't know about UI view modes.
+   *   The view-mode flip is a UI decision triggered by the same click, so it
+   *   belongs at the click handler.
+   */
+  const handleExplainClick = useCallback(() => {
+    if (!activeTab) return;
+    updateTab(activeTab.id, { viewMode: "explain" });
+    void explain(activeTab.sql ?? "");
+  }, [activeTab, updateTab, explain]);
+
+  /**
+   * handleViewModeToggle — switches the active tab between the grid (rows)
+   * and explain (plan) views without re-running anything. Each view keeps its
+   * own last result so toggling is instantaneous.
+   */
+  const handleViewModeToggle = useCallback(
+    (mode: "grid" | "explain") => {
+      if (!activeTab) return;
+      updateTab(activeTab.id, { viewMode: mode });
+    },
+    [activeTab, updateTab]
+  );
 
   /**
    * onDividerMouseDown — begins tracking the drag gesture.
@@ -211,22 +248,42 @@ export default function App() {
                 SQL Editor
               </span>
 
-              {/* Run button — alternative to Cmd/Ctrl+Enter */}
-              <button
-                onClick={handleRunButtonClick}
-                disabled={activeTab?.loading ?? false}
-                className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#7c85d6] border border-[#2a2a4a] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100 select-none"
-                title="Run query (Cmd+Enter)"
-              >
-                {activeTab?.loading ? (
-                  "Running…"
-                ) : (
-                  <>
-                    <span>Run</span>
-                    <span className="text-[#4b5563]">⌘↵</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2">
+                {/*
+                  Explain button — issues POST /api/explain for the current SQL
+                  and flips the result panel to the plan-tree view. Disabled
+                  while either pipeline is in flight so we don't fire
+                  conflicting requests against the same tab.
+                */}
+                <button
+                  onClick={handleExplainClick}
+                  disabled={
+                    (activeTab?.loading ?? false) ||
+                    (activeTab?.explainLoading ?? false)
+                  }
+                  className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#9ca3af] border border-[#2a2a4a] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100 select-none"
+                  title="Show query plan"
+                >
+                  {activeTab?.explainLoading ? "Planning…" : "Explain"}
+                </button>
+
+                {/* Run button — alternative to Cmd/Ctrl+Enter */}
+                <button
+                  onClick={handleRunButtonClick}
+                  disabled={activeTab?.loading ?? false}
+                  className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#7c85d6] border border-[#2a2a4a] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100 select-none"
+                  title="Run query (Cmd+Enter)"
+                >
+                  {activeTab?.loading ? (
+                    "Running…"
+                  ) : (
+                    <>
+                      <span>Run</span>
+                      <span className="text-[#4b5563]">⌘↵</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Editor body — CodeMirror 6 mounts here */}
@@ -260,20 +317,63 @@ export default function App() {
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <div className="flex items-center justify-between px-3 h-8 border-b border-[#1f2033] shrink-0">
               <span className="text-[10px] uppercase tracking-widest text-[#4b5563]">
-                Results
+                {activeTab?.viewMode === "explain" ? "Plan" : "Results"}
               </span>
+
+              {/*
+                View-mode toggle — segmented control between rows (DataGrid)
+                and plan (ExplainView). Each side keeps its own last output,
+                so toggling is free (no re-fetch). The "Plan" tab is dim until
+                the user has actually run an EXPLAIN to indicate it's empty.
+              */}
+              <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider">
+                <button
+                  type="button"
+                  onClick={() => handleViewModeToggle("grid")}
+                  className={`px-2 h-5 rounded border transition-colors duration-100 select-none ${
+                    activeTab?.viewMode !== "explain"
+                      ? "bg-[#14142b] text-[#7c85d6] border-[#2a2a4a]"
+                      : "bg-transparent text-[#4b5563] border-[#1f2033] hover:text-[#7c85d6]"
+                  }`}
+                  title="Show row results"
+                >
+                  Rows
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleViewModeToggle("explain")}
+                  className={`px-2 h-5 rounded border transition-colors duration-100 select-none ${
+                    activeTab?.viewMode === "explain"
+                      ? "bg-[#14142b] text-[#7c85d6] border-[#2a2a4a]"
+                      : "bg-transparent text-[#4b5563] border-[#1f2033] hover:text-[#7c85d6]"
+                  }`}
+                  title="Show query plan"
+                >
+                  Plan
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-hidden">
               {/*
-                Pass per-tab result/error/loading from the active tab in the store.
-                When the user switches tabs, these update instantly — no re-fetch.
+                Conditional render based on the active tab's viewMode.
+                We mount only one of the two views at a time so the unmounted
+                view's heavy children (e.g. TanStack virtualizer) don't
+                continue running in the background.
               */}
-              <DataGrid
-                result={activeTab?.result ?? null}
-                error={activeTab?.error ?? null}
-                loading={activeTab?.loading ?? false}
-              />
+              {activeTab?.viewMode === "explain" ? (
+                <ExplainView
+                  loading={activeTab?.explainLoading ?? false}
+                  error={activeTab?.explainError ?? null}
+                  data={activeTab?.explainData ?? null}
+                />
+              ) : (
+                <DataGrid
+                  result={activeTab?.result ?? null}
+                  error={activeTab?.error ?? null}
+                  loading={activeTab?.loading ?? false}
+                />
+              )}
             </div>
           </div>
 
