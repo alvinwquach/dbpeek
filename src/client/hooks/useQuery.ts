@@ -44,21 +44,45 @@ import { useAppStore, type HistoryEntry } from "../stores/app";
 
 // Re-export QueryResult from the shared types file so existing callers that
 // import it from this module continue to compile without changes.
-export type { QueryResult } from "../types";
+export type { QueryResult, StatementResult } from "../types";
+
+import type { StatementResult } from "../types";
 
 // ===== INTERNAL TYPES =====
 
-/** Shape of the JSON body for a successful /api/query response (HTTP 200). */
+/**
+ * Shape of the JSON body for a successful /api/query response (HTTP 200).
+ *
+ * The multi-statement fields (statements, statementCount, totalExecutionTime)
+ * are present only when the user submitted more than one statement. The
+ * top-level columns/rows/rowCount/executionTime are ALWAYS present — for
+ * multi-statement responses, they mirror the LAST statement so legacy
+ * single-statement consumers can render something sensible without code
+ * changes. See server/routes/query.ts for the contract.
+ */
 interface QueryApiSuccess {
   columns: string[];
   rows: unknown[][];
   rowCount: number;
   executionTime: number;
+  statements?: StatementResult[];
+  statementCount?: number;
+  totalExecutionTime?: number;
 }
 
-/** Shape of the JSON body for an error /api/query response (HTTP 400 / 403). */
+/**
+ * Shape of the JSON body for an error /api/query response (HTTP 400 / 403).
+ *
+ * For multi-statement runtime errors, `statementIndex`, `statementCount`, and
+ * `completed` are also populated so the UI can show "Statement 2 of 4 failed"
+ * along with whatever earlier statements DID complete. These are absent for
+ * single-statement errors and for permission denials.
+ */
 interface QueryApiError {
   error: string;
+  statementIndex?: number;
+  statementCount?: number;
+  completed?: StatementResult[];
 }
 
 // ===== HOOK =====
@@ -136,6 +160,13 @@ export function useQueryExecution(): {
           addHistoryEntry(entry);
         } else {
           // ── Query succeeded ────────────────────────────────────────────────
+          // For multi-statement batches, copy the per-statement metadata
+          // (statements, statementCount, totalExecutionTime) onto the result
+          // alongside the standard top-level fields. The top-level fields
+          // mirror the LAST statement (server contract), so legacy components
+          // that only read columns/rows/rowCount continue to render the
+          // final result. Components that opt in to multi-statement awareness
+          // (e.g. a "2 of 4" status badge) read the optional fields.
           const successData = data as QueryApiSuccess;
 
           setTabQueryState(tabId, {
@@ -145,6 +176,13 @@ export function useQueryExecution(): {
               rows: successData.rows,
               rowCount: successData.rowCount,
               executionTime: successData.executionTime,
+              ...(successData.statements
+                ? {
+                    statements: successData.statements,
+                    statementCount: successData.statementCount,
+                    totalExecutionTime: successData.totalExecutionTime,
+                  }
+                : {}),
             },
             error: null,
           });

@@ -327,10 +327,18 @@ function getStatementType(statement: string): string {
  *   inside one only matters if the user is already running with full
  *   permissions, where everything is allowed.
  *
+ * WHY this is exported (was previously private):
+ *   The query route also needs to enumerate statements so it can execute them
+ *   sequentially and report progress per statement ("Statement 1/4 complete").
+ *   Re-implementing the tokenizer in two places would risk drift between the
+ *   security split and the execution split — a divergence here could let a
+ *   destructive statement slip past the validator while still being executed.
+ *   Exporting the single canonical splitter keeps both call sites in lockstep.
+ *
  * @returns an array of statement strings, with empty / whitespace-only
  *   statements filtered out so trailing semicolons do not create phantoms.
  */
-function splitStatements(sql: string): string[] {
+export function splitStatements(sql: string): string[] {
   const statements: string[] = [];
   let current = "";
   let i = 0;

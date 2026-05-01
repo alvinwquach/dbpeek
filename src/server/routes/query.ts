@@ -56,7 +56,7 @@
 import { Router, type Request, type Response } from "express";
 import type { Knex } from "../db.js";
 import type { PermissionMode } from "../../types/connection.js";
-import { validateQuery } from "../permissions.js";
+import { validateQuery, splitStatements } from "../permissions.js";
 
 // ===== RESULT NORMALIZATION =====
 
@@ -280,6 +280,72 @@ function mapDatabaseError(err: unknown): string {
   return raw;
 }
 
+// ===== PER-STATEMENT EXECUTION =====
+
+/**
+ * The shape returned for ONE statement inside a multi-statement batch.
+ *
+ * WHY a dedicated type rather than reusing NormalizedResult:
+ *   A multi-statement response carries metadata (`statementIndex`) that does
+ *   NOT belong on a single-statement envelope. Splitting the types makes the
+ *   API contract explicit at the type level: a NormalizedResult is a raw
+ *   normalized shape; a StatementResult is "that, plus where it sat in the
+ *   batch and how long it took."
+ *
+ * WHY statementIndex is 1-based:
+ *   The number is shown directly to the user ("Statement 2/4 failed"). 1-based
+ *   indexing matches how humans count and lines up with editor line numbers.
+ *   The internal arrays remain 0-based; we only translate when crossing the
+ *   API boundary.
+ */
+interface StatementResult extends NormalizedResult {
+  /** 1-based position of this statement in the submitted batch. */
+  statementIndex: number;
+  /** Wall-clock milliseconds for THIS statement only (not the batch total). */
+  executionTime: number;
+}
+
+/**
+ * Executes ONE SQL statement and produces a normalized result.
+ *
+ * WHY pulled into a helper rather than inlined in the route:
+ *   Both the single-statement fast path and the multi-statement loop need
+ *   the same execute-and-time logic. Extracting it keeps the timing strategy
+ *   (process.hrtime.bigint() → ms float) consistent across both paths and
+ *   eliminates a class of subtle "single is timed differently than multi" bugs.
+ *
+ * WHAT it does:
+ *   Issues `db.raw(sql)`, measures the round-trip with hrtime, normalizes the
+ *   driver-specific result shape, and returns a {columns, rows, rowCount,
+ *   executionTime} bundle.
+ *
+ * HOW it works:
+ *   1. Snapshot start time as BigInt nanoseconds (hrtime; immune to NTP skew).
+ *   2. Await the driver call. Any error propagates to the caller for mapping.
+ *   3. Snapshot end time and compute (end - start) / 1e6 to get a millisecond
+ *      float with sub-ms resolution.
+ *   4. Hand the raw driver result to normalizeResult() for shape canonicalization.
+ *
+ * @param db  - The Knex instance to execute through.
+ * @param sql - A SINGLE SQL statement (no semicolons inside, except those
+ *              escaped within strings/identifiers/comments). The caller is
+ *              responsible for splitting; this helper does not validate.
+ */
+async function executeStatement(
+  db: Knex,
+  sql: string
+): Promise<NormalizedResult & { executionTime: number }> {
+  const start = process.hrtime.bigint();
+  const rawResult = await db.raw(sql);
+  const end = process.hrtime.bigint();
+  // BigInt → number conversion: nanoseconds / 1e6 = milliseconds.
+  // Lossless for any duration under ~104 days, which trivially covers any
+  // realistic single statement.
+  const executionTime = Number(end - start) / 1_000_000;
+  const normalized = normalizeResult(rawResult);
+  return { ...normalized, executionTime };
+}
+
 // ===== ROUTE FACTORY =====
 
 /**
@@ -291,6 +357,53 @@ function mapDatabaseError(err: unknown): string {
  *   and captures them in a closure — meaning the same module can be loaded
  *   in tests (with a mock Knex and a different mode) and in production (with
  *   the real Knex and the user-selected mode) without any module-level state.
+ *
+ * ===== MULTI-STATEMENT EXECUTION =====
+ *
+ * The route accepts EITHER a single SQL statement or a batch of statements
+ * separated by semicolons. The processing pipeline is:
+ *
+ *   1. Body validation (must be { sql: string }).
+ *   2. SQL-aware split into individual statements (splitStatements).
+ *      Semicolons inside string literals, double-quoted identifiers, backtick
+ *      identifiers, and -- or /* comments are NOT separators.
+ *   3. Permission validation across the WHOLE batch. If ANY statement is
+ *      forbidden by the active mode, the entire batch is rejected (no
+ *      partial execution — this matches validateQuery's all-or-nothing
+ *      contract; see permissions.ts).
+ *   4. Sequential execution. Each statement is executed in submission order,
+ *      with a console.log emitted after each completion in the form
+ *      "Statement N/M complete..." so the operator running dbpeek in a
+ *      terminal sees real-time progress for long batches.
+ *   5. On the FIRST runtime error, execution stops. The HTTP response
+ *      includes:
+ *        - error          : "Statement N/M failed: <mapped message>"
+ *        - statementIndex : 1-based position of the failed statement
+ *        - statementCount : total statements in the batch
+ *        - completed      : array of results for statements 1..N-1
+ *
+ * ===== RESPONSE SHAPE =====
+ *
+ *   Single statement (backward compatible):
+ *     { columns, rows, rowCount, executionTime }
+ *
+ *   Multi-statement success:
+ *     {
+ *       statements:         StatementResult[],   // per-statement details
+ *       statementCount:     number,              // statements.length
+ *       totalExecutionTime: number,              // sum of per-statement times
+ *       // Convenience mirror of the LAST statement, so any UI that ignores
+ *       // multi-statement responses still renders something sensible:
+ *       columns, rows, rowCount, executionTime
+ *     }
+ *
+ *   Multi-statement runtime error (HTTP 400):
+ *     {
+ *       error:          "Statement 2/4 failed: ...",
+ *       statementIndex: 2,
+ *       statementCount: 4,
+ *       completed:      StatementResult[]
+ *     }
  *
  * @param db   - The Knex instance to execute the SQL through. The router
  *               does not own the lifecycle of this instance — the CLI creates
@@ -320,6 +433,9 @@ export function createQueryRouter(db: Knex, mode: PermissionMode): Router {
     }
 
     // ── Step 2: enforce the permission mode ────────────────────────────────
+    // validateQuery() splits the SQL itself and returns the FIRST denial
+    // reason across the WHOLE batch. We rely on its all-or-nothing contract:
+    // if any statement in a multi-statement batch is forbidden, none execute.
     // The validateQuery() return is a discriminated union, so TypeScript
     // narrows `validation.reason` to a string only inside the `!allowed`
     // branch. This is the security boundary — DO NOT add a bypass here.
@@ -328,40 +444,128 @@ export function createQueryRouter(db: Knex, mode: PermissionMode): Router {
       return res.status(403).json({ error: validation.reason });
     }
 
-    // ── Step 3: execute and time the query ─────────────────────────────────
-    // process.hrtime.bigint() returns nanoseconds as a BigInt. We measure
-    // around the awaited db.raw() call so the elapsed value reflects the
-    // round-trip to the database, not the full request lifecycle (which
-    // would include JSON parsing, validation, and serialization). Using
-    // hrtime over Date.now() avoids wall-clock skew from NTP corrections —
-    // a one-millisecond NTP step during a long query would otherwise show
-    // up as a negative or jumpy duration.
-    const start = process.hrtime.bigint();
+    // ── Step 3: split into statements ──────────────────────────────────────
+    // We use the SAME tokenizer that validateQuery used internally, so the
+    // execution split CANNOT diverge from the security split. A divergence
+    // would be a security bug: a statement the validator skipped over could
+    // end up executed, or vice versa. There is exactly one splitter in the
+    // codebase (splitStatements in permissions.ts) and both call sites use it.
+    const statements = splitStatements(sql);
 
-    try {
-      const rawResult = await db.raw(sql);
-      const end = process.hrtime.bigint();
-
-      // BigInt → number conversion: nanoseconds / 1e6 = milliseconds.
-      // For queries shorter than 9_007_199 seconds (~104 days) the result
-      // fits in Number.MAX_SAFE_INTEGER, so the conversion is lossless for
-      // any realistic query. We choose milliseconds (a float, with sub-ms
-      // resolution) over integer microseconds because the UI displays
-      // "12.3 ms" — a human-readable unit.
-      const executionTime = Number(end - start) / 1_000_000;
-
-      const { columns, rows, rowCount } = normalizeResult(rawResult);
-
-      return res.status(200).json({ columns, rows, rowCount, executionTime });
-    } catch (err: unknown) {
-      // Any error reaching this catch is a database-level failure (the
-      // permission check already passed, and the body shape was validated).
-      // We map it to a 400 because the typical cause is a user-authored
-      // query mistake (typo, missing table, etc.) — NOT a server bug. A 500
-      // would be misleading and would trip alarms in any deployment that
-      // monitors 5xx rates.
-      return res.status(400).json({ error: mapDatabaseError(err) });
+    // splitStatements filters out whitespace/comment-only chunks. The earlier
+    // empty-string guard catches the truly-empty case; this catches the
+    // "comments only" case (e.g. "-- foo\n") that survives the trim() check
+    // but yields zero executable statements.
+    if (statements.length === 0) {
+      return res.status(400).json({
+        error: 'Request body must contain a non-empty "sql" string.',
+      });
     }
+
+    // ── Step 4: SINGLE-STATEMENT FAST PATH ────────────────────────────────
+    // When there is exactly one statement, return the historic envelope
+    // ({ columns, rows, rowCount, executionTime }) verbatim. This preserves
+    // backward compatibility with:
+    //   - the existing client code path that expects top-level fields, and
+    //   - existing tests that assert exact (toEqual) error/success bodies.
+    if (statements.length === 1) {
+      // Non-null assertion: statements.length === 1 guarantees [0] exists.
+      // tsconfig has noUncheckedIndexedAccess on, which widens the element
+      // type to `string | undefined` regardless of length checks.
+      const onlyStatement = statements[0]!;
+      try {
+        const result = await executeStatement(db, onlyStatement);
+        return res.status(200).json({
+          columns: result.columns,
+          rows: result.rows,
+          rowCount: result.rowCount,
+          executionTime: result.executionTime,
+        });
+      } catch (err: unknown) {
+        // Any error reaching this catch is a database-level failure (the
+        // permission check already passed, and the body shape was validated).
+        // We map it to a 400 because the typical cause is a user-authored
+        // query mistake (typo, missing table, etc.) — NOT a server bug. A 500
+        // would be misleading and would trip alarms in any deployment that
+        // monitors 5xx rates.
+        return res.status(400).json({ error: mapDatabaseError(err) });
+      }
+    }
+
+    // ── Step 5: MULTI-STATEMENT SEQUENTIAL EXECUTION ──────────────────────
+    // We execute statements one at a time, in submission order, accumulating
+    // per-statement results. On the first failure we STOP — we do NOT skip
+    // ahead and try later statements. Stopping matches the principle of
+    // least surprise: if statement 2 fails because a table is missing,
+    // statement 3 likely depends on the same schema and will also fail in
+    // a more confusing way. Halting on the first error gives the user a
+    // single, actionable message.
+    const completed: StatementResult[] = [];
+    const statementCount = statements.length;
+    const batchStart = process.hrtime.bigint();
+
+    for (let i = 0; i < statements.length; i++) {
+      const statementIndex = i + 1; // 1-based for human-readable messages.
+      // Non-null assertion: the loop bound i < statements.length guarantees
+      // statements[i] exists. noUncheckedIndexedAccess does not narrow on
+      // arithmetic loop bounds, so we assert here rather than re-deriving the
+      // proof at runtime with a redundant `if (!stmt) continue`.
+      const currentSql = statements[i]!;
+      try {
+        const result = await executeStatement(db, currentSql);
+        completed.push({ statementIndex, ...result });
+
+        // Operator-facing progress. WHY console.log rather than streaming to
+        // the client: this route returns a single JSON response when the
+        // batch is done, so we cannot push intermediate progress over the
+        // wire without re-architecting to SSE. A terminal log is enough to
+        // reassure an operator that a long batch is making forward progress
+        // without committing to a streaming protocol the client doesn't yet
+        // understand. (If/when streaming progress is added, this log can stay
+        // — it's a debugging breadcrumb regardless.)
+        // eslint-disable-next-line no-console
+        console.log(`Statement ${statementIndex}/${statementCount} complete...`);
+      } catch (err: unknown) {
+        // ── Halt on first runtime error ──────────────────────────────────
+        // We surface the index in the error message itself ("Statement 2/4
+        // failed: ...") AND as a structured field, so both human readers and
+        // programmatic clients can recover the position without parsing.
+        // `completed` carries the results of statements 1..N-1, so the UI
+        // can still display partial output rather than throwing them away.
+        const message = mapDatabaseError(err);
+        return res.status(400).json({
+          error: `Statement ${statementIndex}/${statementCount} failed: ${message}`,
+          statementIndex,
+          statementCount,
+          completed,
+        });
+      }
+    }
+
+    const batchEnd = process.hrtime.bigint();
+    const totalExecutionTime = Number(batchEnd - batchStart) / 1_000_000;
+
+    // ── Step 6: aggregate response ────────────────────────────────────────
+    // We expose BOTH the new `statements` array and a top-level mirror of
+    // the LAST statement's columns/rows/rowCount. The mirror is purely a
+    // convenience for clients that don't yet understand multi-statement
+    // responses — they get something renderable (the final result) without
+    // any code changes. New clients should prefer the `statements` array.
+    // Non-null assertion: we only reach this code path when statements.length
+    // > 1 AND every statement executed successfully (otherwise we would have
+    // returned an error response inside the loop). So `completed` has at
+    // least one element. noUncheckedIndexedAccess does not understand the
+    // control-flow proof, so we assert.
+    const last = completed[completed.length - 1]!;
+    return res.status(200).json({
+      statements: completed,
+      statementCount,
+      totalExecutionTime,
+      columns: last.columns,
+      rows: last.rows,
+      rowCount: last.rowCount,
+      executionTime: last.executionTime,
+    });
   });
 
   return router;

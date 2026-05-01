@@ -371,6 +371,168 @@ describe("POST /api/query — error mapping", () => {
   });
 });
 
+// ===== MULTI-STATEMENT EXECUTION =====
+
+describe("POST /api/query — multi-statement execution", () => {
+  it("executes two SELECTs sequentially and returns per-statement results in order", async () => {
+    // The request contains two SELECT statements separated by a semicolon.
+    // The route is expected to:
+    //   1. Split them via the SQL-aware tokenizer (no string/comment data
+    //      collides with the separator here).
+    //   2. Validate the whole batch (both are SELECTs in readonly mode).
+    //   3. Execute each through db.raw() in submission order.
+    //   4. Return a single JSON envelope containing a `statements` array of
+    //      length 2 plus a top-level mirror of the LAST statement.
+    const db = buildMockDb();
+    db.raw
+      .mockResolvedValueOnce([{ n: 1 }])  // result of "SELECT 1 AS n"
+      .mockResolvedValueOnce([{ n: 2 }]); // result of "SELECT 2 AS n"
+
+    const { server, port } = await startApp(db, buildConfig("readonly"));
+    openServers.push(server);
+
+    const { status, data } = await postJson(port, "/api/query", {
+      sql: "SELECT 1 AS n; SELECT 2 AS n;",
+    });
+
+    expect(status).toBe(200);
+
+    // db.raw must have been called exactly twice — once per statement —
+    // and in the order they were submitted. The trim() on the assertion
+    // value tolerates the trailing whitespace splitStatements preserves
+    // before pushing each chunk; the semantics are unchanged.
+    expect(db.raw).toHaveBeenCalledTimes(2);
+    const firstCall = (db.raw.mock.calls[0]?.[0] as string).trim();
+    const secondCall = (db.raw.mock.calls[1]?.[0] as string).trim();
+    expect(firstCall).toBe("SELECT 1 AS n");
+    expect(secondCall).toBe("SELECT 2 AS n");
+
+    // The aggregated response carries per-statement details in submission
+    // order, with 1-based statementIndex values.
+    const body = data as {
+      statements: Array<{
+        statementIndex: number;
+        columns: string[];
+        rows: unknown[][];
+        rowCount: number;
+        executionTime: number;
+      }>;
+      statementCount: number;
+      totalExecutionTime: number;
+      columns: string[];
+      rows: unknown[][];
+      rowCount: number;
+    };
+    expect(body.statementCount).toBe(2);
+    expect(body.statements).toHaveLength(2);
+    expect(body.statements[0]?.statementIndex).toBe(1);
+    expect(body.statements[0]?.columns).toEqual(["n"]);
+    expect(body.statements[0]?.rows).toEqual([[1]]);
+    expect(body.statements[1]?.statementIndex).toBe(2);
+    expect(body.statements[1]?.columns).toEqual(["n"]);
+    expect(body.statements[1]?.rows).toEqual([[2]]);
+
+    // Backward-compat top-level fields mirror the LAST statement's result so
+    // legacy clients that ignore `statements` still render something sensible.
+    expect(body.columns).toEqual(["n"]);
+    expect(body.rows).toEqual([[2]]);
+    expect(body.rowCount).toBe(1);
+    expect(typeof body.totalExecutionTime).toBe("number");
+  });
+
+  it("does not split on semicolons inside string literals, quoted identifiers, or comments", async () => {
+    // This test is the security contract: a semicolon that appears inside a
+    // string literal, a double-quoted identifier, or a comment is data — NOT
+    // a statement separator. Splitting naively here would produce malformed
+    // half-statements AND would bypass the permission classifier (which
+    // looks at the FIRST keyword of each "statement").
+    //
+    // The SQL below packs all three cases into one statement:
+    //   - 'a;b;c'           — semicolon inside a single-quoted string literal
+    //   - "weird;col"       — semicolon inside a double-quoted identifier
+    //   - /* drop;table */  — semicolon inside a block comment
+    //   - -- one;two\n      — semicolon inside a line comment
+    //
+    // The whole input is a SINGLE SELECT. The route must call db.raw exactly
+    // once and must NOT return a multi-statement envelope.
+    const db = buildMockDb();
+    db.raw.mockResolvedValueOnce([{ "weird;col": "a;b;c" }]);
+
+    const { server, port } = await startApp(db, buildConfig("readonly"));
+    openServers.push(server);
+
+    const sql =
+      `SELECT 'a;b;c' AS "weird;col" /* drop;table */ -- one;two\n FROM dual`;
+    const { status, data } = await postJson(port, "/api/query", { sql });
+
+    expect(status).toBe(200);
+    // CRITICAL: exactly one db.raw call. If splitting were naive, this would
+    // be 4 (one for each in-data semicolon plus the trailing chunk).
+    expect(db.raw).toHaveBeenCalledTimes(1);
+
+    // The single-statement envelope is returned (no `statements` field),
+    // which is the backward-compatible shape and the contract that legacy
+    // clients depend on.
+    const body = data as {
+      columns: string[];
+      rows: unknown[][];
+      statements?: unknown;
+    };
+    expect(body.columns).toEqual(["weird;col"]);
+    expect(body.rows).toEqual([["a;b;c"]]);
+    expect(body.statements).toBeUndefined();
+  });
+
+  it("stops on the first error and reports the failing statement index", async () => {
+    // Three statements: SELECT 1 succeeds, SELECT * FROM missing fails,
+    // SELECT 3 must NOT run. The response must:
+    //   - return HTTP 400
+    //   - put the 1-based index ("Statement 2/3 failed: ...") in the message
+    //   - structure that index as a numeric field for programmatic clients
+    //   - include `completed` with the result of statement 1
+    //   - leave statement 3 untouched (db.raw called exactly twice, never thrice)
+    const db = buildMockDb();
+    db.raw
+      .mockResolvedValueOnce([{ ok: 1 }]) // statement 1 succeeds
+      .mockRejectedValueOnce(
+        new Error('relation "missing" does not exist')
+      ); // statement 2 fails — execution must HALT here
+
+    const { server, port } = await startApp(db, buildConfig("readonly"));
+    openServers.push(server);
+
+    const { status, data } = await postJson(port, "/api/query", {
+      sql: "SELECT 1; SELECT * FROM missing; SELECT 3;",
+    });
+
+    expect(status).toBe(400);
+
+    // Exactly TWO calls — statement 3 is not attempted because we halt on
+    // the first runtime error. Asserting !== 3 here would also pass, but
+    // pinning to 2 is more precise and would catch a bug where execution
+    // continues past the failure.
+    expect(db.raw).toHaveBeenCalledTimes(2);
+
+    const body = data as {
+      error: string;
+      statementIndex: number;
+      statementCount: number;
+      completed: Array<{ statementIndex: number; rowCount: number }>;
+    };
+    expect(body.statementIndex).toBe(2);
+    expect(body.statementCount).toBe(3);
+    // The mapped Postgres "relation does not exist" message becomes
+    // "Table not found: missing", and the statement-index prefix is added.
+    expect(body.error).toBe(
+      "Statement 2/3 failed: Table not found: missing"
+    );
+    // Statement 1's result is preserved in `completed` so the UI can still
+    // show partial output rather than discarding earlier work.
+    expect(body.completed).toHaveLength(1);
+    expect(body.completed[0]?.statementIndex).toBe(1);
+  });
+});
+
 describe("POST /api/query — input validation", () => {
   it("returns 400 when sql is missing from the request body", async () => {
     const db = buildMockDb();
