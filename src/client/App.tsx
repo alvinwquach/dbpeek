@@ -52,6 +52,7 @@ import { ExplainView } from "./components/Results/ExplainView";
 import { ChartView } from "./components/Results/ChartView";
 import { SchemaTree } from "./components/Schema/SchemaTree";
 import { QueryHistoryPanel } from "./components/History/QueryHistoryPanel";
+import { ErdView } from "./components/Schema/ErdView";
 import { useQueryExecution } from "./hooks/useQuery";
 import { useExplain } from "./hooks/useExplain";
 import { useSchema } from "./hooks/useSchema";
@@ -117,6 +118,12 @@ export default function App() {
   // toggleHistory is also wired to Cmd+H below.
   const historyOpen = useAppStore((s) => s.historyOpen);
   const toggleHistory = useAppStore((s) => s.toggleHistory);
+
+  // ── ERD overlay ───────────────────────────────────────────────────────────
+  // erdOpen drives the conditional render of ErdView, a full-viewport overlay
+  // that visualises FK relationships as directed edges between table nodes.
+  const erdOpen = useAppStore((s) => s.erdOpen);
+  const toggleErd = useAppStore((s) => s.toggleErd);
 
   // ── Session report ────────────────────────────────────────────────────────
   // Cmd+D (or Ctrl+D) opens a modal summarising the current session before the
@@ -569,6 +576,14 @@ export default function App() {
       {sessionReportOpen && (
         <SessionReport onClose={() => setSessionReportOpen(false)} />
       )}
+
+      {/* ===== ERD OVERLAY ===== */}
+      {/*
+        Conditionally rendered so the ReactFlow canvas and Dagre layout work
+        (zero DOM when closed). The "ERD" button in SchemaTree's header flips
+        erdOpen via toggleErd; ErdView's onClose does the same.
+      */}
+      {erdOpen && <ErdView onClose={toggleErd} />}
 
     </div>
   );

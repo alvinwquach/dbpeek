@@ -55,10 +55,11 @@ export interface ColumnInfo {
   /** True if this column is (part of) the primary key. */
   isPrimaryKey: boolean;
   /**
-   * Foreign key target in "table.column" form, or null if not a FK.
-   * Example: "users.id"
+   * Foreign key target, or null if this column is not a FK.
+   * Matches the server's ColumnInfo shape in src/server/routes/schema/types.ts.
+   * Example: { table: "users", column: "id" }
    */
-  foreignKey: string | null;
+  foreignKey: { table: string; column: string } | null;
   /** True if this column has a standalone index (not just PK/FK). */
   isIndexed: boolean;
 }

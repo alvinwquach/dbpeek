@@ -75,11 +75,15 @@
  *     query-execution machinery — SchemaTree just emits a SQL string.
  */
 
-import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { useAppStore } from "../../stores/app";
 import type { ColumnInfo } from "../../hooks/useSchema";
 import { ColumnStats } from "./ColumnStats";
 import { DdlViewer } from "./DdlViewer";
+import { SearchInput } from "./tree/SearchInput";
+import { TableRow } from "./tree/TableRow";
+import { ContextMenu } from "./tree/ContextMenu";
+import { ErdIcon } from "./tree/icons";
 
 // ===== TYPES =====
 
@@ -130,80 +134,6 @@ interface SchemaTreeProps {
   onPreview: (sql: string) => void;
 }
 
-// ===== TYPE-LABEL SHORTENER =====
-
-/**
- * Maps a dialect-native type label to a short, scannable badge text.
- *
- * WHY a dedicated helper rather than rendering the raw type:
- *   The raw types are verbose and dialect-specific:
- *     "character varying(255)"     (Postgres)
- *     "int(11) unsigned"           (MySQL)
- *     "TIMESTAMP WITHOUT TIME ZONE" (Postgres)
- *     "nvarchar"                   (MSSQL)
- *   For a 244 px sidebar that's too much chrome. The user wants a glance:
- *   "is this an int? a string? a timestamp?". Short tokens deliver that.
- *
- * STRATEGY:
- *   1. Lowercase + take the head token (prefix up to whitespace or `(`).
- *   2. Map a known set of heads to canonical short labels.
- *   3. Fallback: return the head as-is so unknown types still appear.
- */
-function shortTypeBadge(type: string): string {
-  const head = type.toLowerCase().trim().split(/[\s(]/)[0] ?? "";
-
-  if (head === "uuid") return "uuid";
-  if (head === "json" || head === "jsonb") return "json";
-  if (head.startsWith("timestamp")) return "timestamp";
-  if (head === "datetime" || head === "datetime2") return "datetime";
-  if (head === "date") return "date";
-  if (head === "time") return "time";
-  if (head === "bool" || head === "boolean" || head === "bit") return "bool";
-  if (
-    head === "int" ||
-    head === "integer" ||
-    head === "bigint" ||
-    head === "smallint" ||
-    head === "tinyint" ||
-    head === "mediumint" ||
-    head === "int2" ||
-    head === "int4" ||
-    head === "int8"
-  ) {
-    return "int";
-  }
-  if (head === "serial" || head === "bigserial" || head === "smallserial") {
-    return "serial";
-  }
-  if (head === "numeric" || head === "decimal" || head === "dec") {
-    return "numeric";
-  }
-  if (
-    head === "real" ||
-    head === "double" ||
-    head === "float" ||
-    head === "float4" ||
-    head === "float8"
-  ) {
-    return "float";
-  }
-  if (head === "money" || head === "smallmoney") return "money";
-  if (head === "text" || head === "longtext" || head === "mediumtext" || head === "tinytext") {
-    return "text";
-  }
-  if (head === "varchar" || head === "nvarchar" || head === "character") {
-    return "varchar";
-  }
-  if (head === "char" || head === "nchar") return "char";
-  if (head === "blob" || head === "bytea" || head === "varbinary") return "blob";
-  if (head === "enum") return "enum";
-  if (head === "interval") return "interval";
-
-  // Fallback: keep the head token. Unknown types are still informative even
-  // if they don't match a curated label.
-  return head || type;
-}
-
 // ===== SEARCH HELPERS =====
 
 /**
@@ -218,172 +148,6 @@ function shortTypeBadge(type: string): string {
 function matchesSearch(text: string, needle: string): boolean {
   if (needle === "") return true;
   return text.toLowerCase().includes(needle.toLowerCase());
-}
-
-// ===== ICONS =====
-//
-// Inline SVGs (rather than importing an icon library) keep the bundle small
-// and let us style with Tailwind's text-color classes via fill="currentColor".
-
-/**
- * Right-pointing chevron used as the table-row collapse indicator.
- * Rotates 90° via Tailwind utility when expanded — no second SVG needed.
- */
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      className={[
-        "w-2.5 h-2.5 shrink-0 text-[#4b5563] transition-transform duration-100",
-        open ? "rotate-90" : "",
-      ].join(" ")}
-      viewBox="0 0 8 8"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M3 1.5L5.5 4L3 6.5"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/**
- * Small table icon for table rows. Three horizontal bars suggest "rows of data"
- * without being a literal grid (which would compete with the chevron visually).
- */
-function TableIcon() {
-  return (
-    <svg
-      className="w-3 h-3 shrink-0 text-[#6b7280]"
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden="true"
-    >
-      <rect
-        x="1.5"
-        y="2.5"
-        width="9"
-        height="7"
-        rx="1"
-        stroke="currentColor"
-        strokeWidth="1"
-      />
-      <line x1="1.5" y1="5" x2="10.5" y2="5" stroke="currentColor" strokeWidth="0.75" />
-      <line x1="1.5" y1="7.5" x2="10.5" y2="7.5" stroke="currentColor" strokeWidth="0.75" />
-    </svg>
-  );
-}
-
-/**
- * Eye icon used for the preview action ("show me this table's first rows").
- * Universally recognized as "view" in dev tools and design apps.
- */
-function PreviewIcon() {
-  return (
-    <svg
-      className="w-3 h-3 shrink-0"
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M1 6S2.5 2.5 6 2.5 11 6 11 6 9.5 9.5 6 9.5 1 6 1 6Z"
-        stroke="currentColor"
-        strokeWidth="1"
-        strokeLinejoin="round"
-      />
-      <circle cx="6" cy="6" r="1.5" fill="currentColor" />
-    </svg>
-  );
-}
-
-/**
- * Code-brackets icon used for the "Show DDL" action on a table row. The
- * angle-brackets read as "structured definition" in dev tooling — the same
- * convention used in IDEs to mean "view source / definition".
- */
-function DdlIcon() {
-  return (
-    <svg
-      className="w-3 h-3 shrink-0"
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M4.5 3L1.5 6L4.5 9"
-        stroke="currentColor"
-        strokeWidth="1"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M7.5 3L10.5 6L7.5 9"
-        stroke="currentColor"
-        strokeWidth="1"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/**
- * Magnifying-glass icon for the search input.
- */
-function SearchIcon() {
-  return (
-    <svg
-      className="w-3 h-3 shrink-0 text-[#4b5563]"
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden="true"
-    >
-      <circle cx="5" cy="5" r="3" stroke="currentColor" strokeWidth="1" />
-      <line
-        x1="7.5"
-        y1="7.5"
-        x2="10"
-        y2="10"
-        stroke="currentColor"
-        strokeWidth="1"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-/**
- * Filled-star icon used next to pinned tables. The fill signals "pinned" state
- * clearly without relying on color alone — screen-reader users also get the
- * aria-label "Unpin table".
- *
- * WHY a star and not a pin/thumbtack:
- *   "Star to favorite" is the dominant mental model in developer tooling
- *   (GitHub stars, VS Code pinned tabs use filled icons). A thumbtack is
- *   also common, but a 12 px thumbtack is difficult to read; a star reads
- *   clearly at that size.
- */
-function StarFilledIcon() {
-  return (
-    <svg
-      className="w-3 h-3 shrink-0"
-      viewBox="0 0 12 12"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      {/*
-        A five-pointed star drawn with a single polygon.
-        Points calculated for a 12×12 viewport, center at (6,6), outer-
-        radius 5, inner-radius 2.
-      */}
-      <polygon points="6,1 7.545,4.134 11,4.635 8.5,7.072 9.09,10.511 6,8.884 2.91,10.511 3.5,7.072 1,4.635 4.455,4.134" />
-    </svg>
-  );
 }
 
 // ===== MAIN COMPONENT =====
@@ -416,6 +180,16 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
   const pinnedTables = useAppStore((s) => s.pinnedTables);
   const pinTable = useAppStore((s) => s.pinTable);
   const unpinTable = useAppStore((s) => s.unpinTable);
+
+  // ── ERD state from store ───────────────────────────────────────────────────
+  const toggleErd = useAppStore((s) => s.toggleErd);
+
+  // ── Sidebar focus (ERD node click navigation) ─────────────────────────────
+  // When the user clicks a table node in the ERD, ErdView writes the table name
+  // to store.sidebarFocusTable then closes itself. The effect below picks that
+  // up after the ERD unmounts, expands the target table, and scrolls to it.
+  const sidebarFocusTable = useAppStore((s) => s.sidebarFocusTable);
+  const setSidebarFocusTable = useAppStore((s) => s.setSidebarFocusTable);
 
   // ── Local state ────────────────────────────────────────────────────────────
 
@@ -462,6 +236,39 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
    */
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
+  // ── Focus a table from ERD click ──────────────────────────────────────────
+  /**
+   * When ErdView sets sidebarFocusTable (on table node click), this effect:
+   *   1. Expands the target table in the tree.
+   *   2. Scrolls the table's <li> element into view.
+   *   3. Clears sidebarFocusTable so the effect doesn't re-fire.
+   *
+   * WHY requestAnimationFrame for the scroll:
+   *   setExpandedTables is a React state update — the DOM isn't updated until
+   *   the next paint. scrollIntoView needs the row to be expanded (and therefore
+   *   rendered) before it can measure the element's position. rAF defers the
+   *   scroll until after the DOM commit.
+   */
+  useEffect(() => {
+    if (!sidebarFocusTable) return;
+
+    // Expand the focused table so it's visible in the tree.
+    setExpandedTables((prev) => {
+      const next = new Set(prev);
+      next.add(sidebarFocusTable);
+      return next;
+    });
+
+    // Scroll after the DOM has updated with the now-expanded row.
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`schema-table-${CSS.escape(sidebarFocusTable)}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+
+    // Clear the focus intent so this effect doesn't re-run.
+    setSidebarFocusTable(null);
+  }, [sidebarFocusTable, setSidebarFocusTable]);
+
   // ── Derived: filtered table list ──────────────────────────────────────────
   //
   // WHY useMemo on (schemaMap, schemaColumns, searchTerm):
@@ -503,9 +310,9 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
   );
 
   /**
-   * Filtered + sorted list of ALL tables (including pinned ones) for the main
-   * section. Pinned tables are excluded here — they're rendered in their own
-   * PinnedSection above this list to avoid showing them twice.
+   * Filtered + sorted list of ALL tables (excluding pinned ones) for the main
+   * section. Pinned tables are rendered in their own PinnedSection above this
+   * list to avoid showing them twice.
    *
    * WHY useMemo on (schemaMap, schemaColumns, searchTerm, pinnedTables):
    *   Filtering walks every table and every column in the database. With a
@@ -703,17 +510,35 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* ===== HEADER (label + table count) ===== */}
+      {/* ===== HEADER (label + ERD button + table count) ===== */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[#1f2033] shrink-0">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-[#4b5563]">
           Schema
         </span>
-        {schemaMap != null && (
-          <span className="text-[9px] font-mono text-[#374151]">
-            {Object.keys(schemaMap).length}{" "}
-            {Object.keys(schemaMap).length === 1 ? "table" : "tables"}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {/*
+            ERD button — only shown when there are tables to visualise.
+            Opens the full-viewport Entity Relationship Diagram overlay that
+            draws FK relationships as directed edges between table nodes.
+          */}
+          {schemaMap != null && Object.keys(schemaMap).length > 0 && (
+            <button
+              onClick={toggleErd}
+              className="flex items-center gap-1 px-1.5 h-4 rounded border border-[#1f2033] text-[8.5px] font-mono uppercase tracking-wider text-[#4b5563] hover:text-[#ededf0] hover:border-[#3b4070] hover:bg-[#14142b] transition-colors duration-100 select-none"
+              title="Open Entity Relationship Diagram"
+              aria-label="Open ERD"
+            >
+              <ErdIcon />
+              <span>ERD</span>
+            </button>
+          )}
+          {schemaMap != null && (
+            <span className="text-[9px] font-mono text-[#374151]">
+              {Object.keys(schemaMap).length}{" "}
+              {Object.keys(schemaMap).length === 1 ? "table" : "tables"}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* ===== SEARCH INPUT ===== */}
@@ -886,488 +711,3 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
     </div>
   );
 }
-
-// ===== SUB-COMPONENT: SearchInput =====
-
-/**
- * SearchInput — the controlled search input pinned below the header.
- *
- * WHY a sub-component:
- *   It bundles the icon + input + clear button into one renderable unit so
- *   the parent's JSX stays focused on the table-list rendering. Also makes
- *   the input testable in isolation if we want to add a unit test later.
- */
-function SearchInput({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-}) {
-  return (
-    <div className="px-2 py-2 border-b border-[#1f2033] shrink-0">
-      <div className="flex items-center gap-1.5 px-2 h-6 rounded bg-[#0f0f1a] border border-[#1f2033] focus-within:border-[#3b4070] transition-colors duration-100">
-        <SearchIcon />
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Search tables and columns…"
-          className="flex-1 min-w-0 bg-transparent outline-none text-[11px] text-[#ededf0] placeholder:text-[#374151] font-mono"
-          aria-label="Search schema"
-        />
-        {/* Clear button — only visible when there's text to clear. */}
-        {value !== "" && (
-          <button
-            onClick={() => onChange("")}
-            className="text-[#4b5563] hover:text-[#9ca3af] transition-colors duration-100 text-[10px]"
-            aria-label="Clear search"
-            title="Clear search"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ===== SUB-COMPONENT: TableRow =====
-
-/**
- * TableRow — one table in the tree, with its (conditionally rendered) columns.
- *
- * WHY this is a sub-component instead of inline JSX:
- *   Separating it lets the parent map() stay flat and keeps the per-row
- *   keyboard / click logic local. It also makes the React.memo optimization
- *   trivial to add later if needed (a table row only needs to re-render when
- *   its own props change — not when a sibling table is expanded).
- */
-function TableRow({
-  name,
-  columns,
-  rowCount,
-  isExpanded,
-  searchTerm,
-  isPinned,
-  selectedColumn,
-  onToggleExpand,
-  onPreviewClick,
-  onDdlClick,
-  onColumnClick,
-  onContextMenu,
-  onUnpinClick,
-}: {
-  name: string;
-  columns: ColumnInfo[];
-  rowCount: number | undefined;
-  isExpanded: boolean;
-  searchTerm: string;
-  /**
-   * True when this row is rendering inside the Pinned section.
-   * Controls whether the leading icon is a chevron (normal) or a filled
-   * star (pinned). The star doubles as the unpin button.
-   */
-  isPinned: boolean;
-  /** Name of the column whose stats popover is open, or null. */
-  selectedColumn: string | null;
-  onToggleExpand: () => void;
-  onPreviewClick: (e: React.MouseEvent) => void;
-  /** Opens the DDL viewer modal for this table. */
-  onDdlClick: (e: React.MouseEvent) => void;
-  onColumnClick: (e: React.MouseEvent<HTMLButtonElement>, info: ColumnInfo) => void;
-  /** Opens the right-click context menu at the cursor position. */
-  onContextMenu: (e: React.MouseEvent) => void;
-  /**
-   * Called when the user clicks the star icon on a pinned row to remove it
-   * from the pinned set. Only invoked when isPinned is true.
-   */
-  onUnpinClick: (e: React.MouseEvent) => void;
-}) {
-  // Filter columns when searching. We only narrow if the table name DIDN'T
-  // match — otherwise show all columns (the user opened the table to browse,
-  // not to find a needle).
-  const tableNameMatched =
-    searchTerm === "" ||
-    name.toLowerCase().includes(searchTerm.toLowerCase());
-  const visibleColumns =
-    tableNameMatched
-      ? columns
-      : columns.filter((c) =>
-          c.name.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-
-  return (
-    <li role="treeitem" aria-expanded={isExpanded}>
-      {/* ===== TABLE HEADER ROW ===== */}
-      <div
-        onClick={onToggleExpand}
-        onContextMenu={onContextMenu}
-        // role=button + keyboard handler so this is reachable by keyboard users.
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onToggleExpand();
-          }
-        }}
-        className="group flex items-center gap-1.5 px-2 h-6 cursor-pointer hover:bg-[#0f0f1a] select-none"
-        title={`Toggle ${name}`}
-      >
-        {/*
-          Leading icon:
-          - Pinned rows show a filled amber star that doubles as the unpin
-            button. The star is always visible (not hover-gated) because it's
-            the primary affordance for "this is pinned — click to remove".
-          - Normal rows show the collapse chevron as before.
-        */}
-        {isPinned ? (
-          <button
-            onClick={onUnpinClick}
-            className="shrink-0 flex items-center justify-center w-4 h-4 rounded text-[#f59e0b] hover:text-[#fbbf24] hover:bg-[#1a1400] transition-colors duration-100"
-            aria-label={`Unpin ${name}`}
-            title={`Unpin ${name}`}
-          >
-            <StarFilledIcon />
-          </button>
-        ) : (
-          <ChevronIcon open={isExpanded} />
-        )}
-        <TableIcon />
-
-        {/* Table name. truncate clips long names; min-w-0 lets flex shrink it. */}
-        <span className="flex-1 min-w-0 truncate text-[11px] text-[#ededf0] font-mono">
-          {name}
-        </span>
-
-        {/* Row-count badge. Hidden when undefined (server didn't report it). */}
-        {rowCount !== undefined && (
-          <span
-            className="shrink-0 text-[9px] font-mono text-[#4b5563] tabular-nums"
-            title={`${rowCount.toLocaleString()} ${rowCount === 1 ? "row" : "rows"} (estimated)`}
-          >
-            {formatRowCount(rowCount)}
-          </span>
-        )}
-
-        {/* Preview button. opacity-0 + group-hover:opacity-100 fades it in
-            on row hover so the row isn't visually noisy when idle. */}
-        <button
-          onClick={onPreviewClick}
-          className="shrink-0 flex items-center justify-center w-5 h-5 rounded text-[#4b5563] hover:text-[#7c85d6] hover:bg-[#14142b] opacity-0 group-hover:opacity-100 transition-opacity duration-100"
-          aria-label={`Preview ${name}`}
-          title={`Preview: SELECT * FROM ${name} LIMIT 100`}
-        >
-          <PreviewIcon />
-        </button>
-
-        {/* Show DDL button. Same hover-reveal treatment as the preview button
-            to keep the row tidy when idle. The two action buttons sit next to
-            each other on the right edge, after the row-count badge. */}
-        <button
-          onClick={onDdlClick}
-          className="shrink-0 flex items-center justify-center w-5 h-5 rounded text-[#4b5563] hover:text-[#7c85d6] hover:bg-[#14142b] opacity-0 group-hover:opacity-100 transition-opacity duration-100"
-          aria-label={`Show DDL for ${name}`}
-          title={`Show DDL for ${name}`}
-        >
-          <DdlIcon />
-        </button>
-      </div>
-
-      {/* ===== COLUMN LIST (rendered when expanded) ===== */}
-      {isExpanded && (
-        <ul role="group" className="border-l border-[#1f2033] ml-3.5">
-          {visibleColumns.map((col) => (
-            <ColumnRow
-              key={col.name}
-              info={col}
-              isSelected={selectedColumn === col.name}
-              onClick={(e) => onColumnClick(e, col)}
-            />
-          ))}
-          {visibleColumns.length === 0 && (
-            <li className="pl-4 py-1 text-[10px] italic text-[#2d3047] font-mono">
-              (no matching columns)
-            </li>
-          )}
-        </ul>
-      )}
-    </li>
-  );
-}
-
-/**
- * Formats a row count for the tight badge slot.
- *
- *   < 1_000        → "42"
- *   < 1_000_000    → "12.3k"
- *   < 1_000_000_000 → "4.5M"
- *   else            → "1.2B"
- *
- * WHY abbreviate at all:
- *   The badge sits next to the table name in a 244 px sidebar. A row count
- *   like "1,234,567,890" would crowd out the name. Abbreviation gives the
- *   user a magnitude at a glance; the title attribute provides the exact
- *   value on hover for the rare case it matters.
- */
-function formatRowCount(n: number): string {
-  if (n < 1_000) return String(n);
-  if (n < 1_000_000) return `${(n / 1_000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  return `${(n / 1_000_000_000).toFixed(1)}B`;
-}
-
-// ===== SUB-COMPONENT: ColumnRow =====
-
-/**
- * ColumnRow — a single column entry under an expanded table.
- *
- * WHY a button (not a div) for the row container:
- *   The whole row is a click target that opens the stats popover. <button>
- *   gives us correct keyboard semantics (Enter / Space activate, focus
- *   indicator) without manual ARIA wiring.
- *
- * KEY-INDICATOR BADGES:
- *   PK (amber)  — primary key
- *   FK (blue)   — foreign key reference
- *   IX (purple) — has at least one index (other than PK/FK)
- *
- *   Multiple flags can apply to one column (a PK is usually also IX). We render
- *   each badge independently so readers can identify each role at a glance —
- *   collapsing them into a single "key" badge would lose information.
- */
-function ColumnRow({
-  info,
-  isSelected,
-  onClick,
-}: {
-  info: ColumnInfo;
-  isSelected: boolean;
-  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
-}) {
-  const typeLabel = shortTypeBadge(info.type);
-
-  return (
-    <li>
-      <button
-        onClick={onClick}
-        className={[
-          "w-full flex items-center gap-1.5 pl-3 pr-2 h-5 text-left",
-          "hover:bg-[#0f0f1a] transition-colors duration-75",
-          isSelected ? "bg-[#14142b]" : "",
-        ].join(" ")}
-        title={`${info.name} : ${info.type}${info.nullable ? "" : " NOT NULL"}${
-          info.foreignKey
-            ? ` → ${info.foreignKey.table}.${info.foreignKey.column}`
-            : ""
-        }`}
-      >
-        {/* Type badge — short label in muted slate. */}
-        <span className="shrink-0 px-1 h-3.5 inline-flex items-center rounded text-[8.5px] font-mono uppercase tracking-wider text-[#6b7280] bg-[#0d0d17] border border-[#1f2033]">
-          {typeLabel}
-        </span>
-
-        {/* Column name — truncates if it overflows. */}
-        <span className="flex-1 min-w-0 truncate text-[10.5px] font-mono text-[#9ca3af]">
-          {info.name}
-          {/* A "?" suffix flags a nullable column at a glance. */}
-          {info.nullable && (
-            <span className="text-[#374151]" aria-hidden="true">?</span>
-          )}
-        </span>
-
-        {/* Key badges — order matters: PK | FK | IX. */}
-        {info.isPrimaryKey && (
-          <KeyBadge label="PK" colorClass="text-[#f59e0b] border-[#3d2c14]" title="Primary key" />
-        )}
-        {info.foreignKey && (
-          <KeyBadge
-            label="FK"
-            colorClass="text-[#60a5fa] border-[#1e2f4d]"
-            title={`Foreign key → ${info.foreignKey.table}.${info.foreignKey.column}`}
-          />
-        )}
-        {/* Show IX only if it's NOT already implied by PK/FK to keep the
-            row uncluttered. The autocomplete-first definition of "indexed"
-            still includes PK/FK indexes; the badge is for "explicit secondary
-            index" which is the more interesting signal in a UI. */}
-        {info.isIndexed && !info.isPrimaryKey && !info.foreignKey && (
-          <KeyBadge label="IX" colorClass="text-[#a78bfa] border-[#2b1f4d]" title="Indexed" />
-        )}
-      </button>
-    </li>
-  );
-}
-
-/**
- * KeyBadge — a small uppercase pill used for PK / FK / IX flags.
- *
- * WHY a shared component:
- *   The three badges share identical layout and only differ in label, color,
- *   and tooltip. Sharing the wrapper guarantees the visual pill (size,
- *   spacing, border) stays consistent across all three.
- */
-function KeyBadge({
-  label,
-  colorClass,
-  title,
-}: {
-  label: string;
-  /** Tailwind classes that set text + border colors. */
-  colorClass: string;
-  title: string;
-}) {
-  return (
-    <span
-      title={title}
-      className={[
-        "shrink-0 inline-flex items-center justify-center w-5 h-3.5 rounded",
-        "text-[8.5px] font-mono font-semibold tracking-wider uppercase",
-        "bg-[#0d0d17] border",
-        colorClass,
-      ].join(" ")}
-      aria-label={title}
-    >
-      {label}
-    </span>
-  );
-}
-
-// ===== SUB-COMPONENT: ContextMenu =====
-
-/**
- * ContextMenu — the single-item right-click menu that appears over a table row.
- *
- * ===== DESIGN DECISIONS =====
- *
- * WHY a single-item menu instead of a plain button:
- *   The right-click pattern is the user's learned gesture for "what can I do
- *   with this thing". A context menu meets that expectation and leaves room to
- *   add future actions (e.g. "Copy table name", "Count rows") without adding
- *   icon-button chrome to every row in the sidebar.
- *
- * WHY fixed positioning at (x, y):
- *   The menu should appear exactly where the user right-clicked — not pinned
- *   to the sidebar edge or to the row's bounding box. fixed + clientX/clientY
- *   gives that behavior and also escapes the sidebar's overflow-y-auto clip.
- *
- * DISMISSAL:
- *   - Click outside (mousedown on the backdrop overlay)
- *   - Escape key (useEffect that listens on document)
- *   Both paths call onClose.
- *
- * VIEWPORT CLAMPING:
- *   If the cursor is near the right or bottom edge the menu would overflow.
- *   We clamp by applying max-w-[180px] and letting the browser clip naturally —
- *   acceptable for a 1-item menu that's very narrow. A full right-click library
- *   would measure the menu and flip it; that's overkill for one item.
- */
-function ContextMenu({
-  table,
-  x,
-  y,
-  isPinned,
-  onPinToggle,
-  onClose,
-}: {
-  /** Table the menu targets. */
-  table: string;
-  /** Horizontal viewport position in px. */
-  x: number;
-  /** Vertical viewport position in px. */
-  y: number;
-  /** Whether the table is currently pinned — controls the menu item label. */
-  isPinned: boolean;
-  /** Called when the user clicks the pin/unpin item. */
-  onPinToggle: () => void;
-  /** Called when the menu should close (click-outside or Escape). */
-  onClose: () => void;
-}) {
-  // Ref for the menu panel — used to detect "click outside" (any mousedown
-  // that is NOT inside the panel) so we can close the menu.
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // ── Dismiss on Escape ──────────────────────────────────────────────────────
-  useEffect(() => {
-    /**
-     * Close the menu when the user presses Escape.
-     *
-     * WHY attach to document (not the menu div):
-     *   The menu div may not have focus — the user right-clicked, not tabbed
-     *   to the menu. Listening on document ensures we catch the key regardless
-     *   of which element has focus.
-     */
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
-
-  // ── Dismiss on click-outside ───────────────────────────────────────────────
-  useEffect(() => {
-    /**
-     * Close the menu when the user mousedowns outside the panel.
-     *
-     * WHY mousedown (not click):
-     *   `click` fires AFTER mouseup. If the user mousedowns outside and then
-     *   mouseups on the menu, `click` would fire on the menu — confusing. Using
-     *   `mousedown` catches the intent before release.
-     */
-    const handleMouseDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, [onClose]);
-
-  return (
-    /*
-     * Invisible full-viewport backdrop. Intercepts right-clicks elsewhere so
-     * the browser's native context menu doesn't appear while our menu is open.
-     * The div itself does NOT close the menu on click — the mousedown handler
-     * above handles dismissal so we don't need a click handler here.
-     */
-    <div
-      className="fixed inset-0 z-50"
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {/* Menu panel — anchored at the cursor position. */}
-      <div
-        ref={menuRef}
-        style={{ top: y, left: x }}
-        className={[
-          "absolute z-50 min-w-[160px] max-w-[220px]",
-          "rounded border border-[#1f2033] bg-[#0d0d1a] shadow-xl",
-          "py-1",
-        ].join(" ")}
-        role="menu"
-        aria-label={`Actions for ${table}`}
-      >
-        {/* ── Menu item: Pin / Unpin ── */}
-        <button
-          onClick={onPinToggle}
-          className={[
-            "w-full flex items-center gap-2 px-3 h-7 text-left",
-            "text-[11px] font-mono text-[#ededf0]",
-            "hover:bg-[#14142b] transition-colors duration-75",
-          ].join(" ")}
-          role="menuitem"
-        >
-          {/* Star icon signals the pin/favorite action. */}
-          <span
-            className={isPinned ? "text-[#f59e0b]" : "text-[#4b5563]"}
-            aria-hidden="true"
-          >
-            <StarFilledIcon />
-          </span>
-          {isPinned ? "Unpin table" : "Pin to top"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
