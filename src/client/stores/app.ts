@@ -173,6 +173,25 @@ interface AppState {
   historyOpen: boolean;
 
   /**
+   * Whether the full-viewport ERD overlay is open.
+   * Toggled by the "ERD" button in SchemaTree's header.
+   */
+  erdOpen: boolean;
+
+  /**
+   * When non-null, SchemaTree will auto-expand this table and scroll to it on
+   * its next render cycle. Set by ErdView when the user clicks a table node
+   * (close ERD + navigate sidebar). Cleared by SchemaTree after handling.
+   *
+   * WHY Zustand (not a prop/callback):
+   *   ErdView closes itself first (which unmounts it), and the navigation needs
+   *   to happen in SchemaTree on the *next* render. Storing the intent in the
+   *   Zustand store lets SchemaTree pick it up after ErdView is gone, without
+   *   any parent-level coordination in App.tsx.
+   */
+  sidebarFocusTable: string | null;
+
+  /**
    * Set of table names the user has pinned via right-click → "Pin to top".
    * Pinned tables are hoisted above the alphabetical list in SchemaTree.
    *
@@ -276,6 +295,15 @@ interface AppState {
   /** Flips the history push-panel open or closed. */
   toggleHistory: () => void;
 
+  /** Flips the ERD full-viewport overlay open or closed. */
+  toggleErd: () => void;
+
+  /**
+   * Stores the name of a table that SchemaTree should expand and scroll to.
+   * Called by ErdView on table-node click. SchemaTree clears it after handling.
+   */
+  setSidebarFocusTable: (table: string | null) => void;
+
   /**
    * Adds a table to the pinned set, hoisting it into the "Pinned" section
    * of SchemaTree. No-op if the table is already pinned.
@@ -352,6 +380,12 @@ export const useAppStore = create<AppState>()((set) => ({
 
   // History panel closed by default; toggled by the tab-bar button or Cmd+H.
   historyOpen: false,
+
+  // ERD overlay closed by default; opened by the "ERD" button in SchemaTree.
+  erdOpen: false,
+
+  // No table queued for sidebar focus at startup.
+  sidebarFocusTable: null,
 
   // No tables pinned at startup.
   pinnedTables: new Set<string>(),
@@ -433,6 +467,10 @@ export const useAppStore = create<AppState>()((set) => ({
   clearHistory: () => set({ history: [] }),
 
   toggleHistory: () => set((state) => ({ historyOpen: !state.historyOpen })),
+
+  toggleErd: () => set((state) => ({ erdOpen: !state.erdOpen })),
+
+  setSidebarFocusTable: (table) => set({ sidebarFocusTable: table }),
 
   pinTable: (tableName) =>
     set((state) => {
