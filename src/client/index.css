@@ -19,14 +19,32 @@
 /* ===== GLOBAL BASE STYLES ===== */
 
 /*
- * Set the page background and default text color at the :root level so that
- * there is no flash of white before React mounts. The same values are used
- * throughout the app via Tailwind arbitrary-value classes (bg-[#0a0a0f], etc.).
+ * CSS custom properties for theme colors, applied dynamically by theme store.
+ * Default is dark mode.
  */
 :root {
+  /* Dark theme defaults */
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #0d0d17;
+  --bg-tertiary: #1a1a27;
+  --text-primary: #ededf0;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --text-light: #374151;
+  --border-color: #1f2033;
+  --border-light: #2d2d3d;
+
   color-scheme: dark;
-  background-color: #0a0a0f;
-  color: #ededf0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+:root.light-theme {
+  color-scheme: light;
+}
+
+:root.dark-theme {
+  color-scheme: dark;
 }
 
 /*
@@ -47,5 +65,5 @@
 /* Thin scrollbars on all scrollable panels to keep the UI compact */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1f2033 transparent;
+  scrollbar-color: var(--border-color) transparent;
 }
