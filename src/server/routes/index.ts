@@ -20,6 +20,7 @@ import { createQueryRouter } from "./query/index.js";
 import { createStatusRouter } from "./status.js";
 import { createSchemaRouter } from "./schema/index.js";
 import { createExplainRouter } from "./explain/index.js";
+import { createImportRouter } from "./import/index.js";
 
 /**
  * Mounts all API route handlers onto the Express app.
@@ -103,4 +104,14 @@ export function registerRoutes(
     "/api/explain",
     createExplainRouter(db, config.dialect, config.permissionMode)
   );
+
+  // ── CSV / JSON import ──────────────────────────────────────────────────────
+  //
+  // POST /api/import receives { table, columns, rows } from the ImportPreview
+  // dialog and executes batched INSERTs inside a single transaction. Requires
+  // write or full mode — 403 is returned in readonly mode. The route lives
+  // here (not inside the query router) because it has a distinct request shape
+  // and permission semantic: it always issues INSERTs (never SELECT), so the
+  // general validateQuery() logic is not useful for it.
+  app.use("/api/import", createImportRouter(db, config.permissionMode));
 }

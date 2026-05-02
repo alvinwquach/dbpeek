@@ -2,12 +2,13 @@
  * src/client/components/Schema/tree/ContextMenu.tsx
  *
  * ===== FILE PURPOSE =====
- * The single-item right-click context menu that appears over a table row
- * in the SchemaTree sidebar.
+ * The right-click context menu that appears over a table row in the SchemaTree
+ * sidebar. Contains actions for that table: pin/unpin and (in write/full mode)
+ * import CSV/JSON.
  *
  * ===== DESIGN DECISIONS =====
  *
- * WHY a single-item menu instead of a plain button:
+ * WHY a context menu instead of more icon buttons on the row:
  *   The right-click pattern is the user's learned gesture for "what can I do
  *   with this thing". A context menu meets that expectation and leaves room to
  *   add future actions (e.g. "Copy table name", "Count rows") without adding
@@ -18,6 +19,12 @@
  *   to the sidebar edge or to the row's bounding box. fixed + clientX/clientY
  *   gives that behavior and also escapes the sidebar's overflow-y-auto clip.
  *
+ * IMPORT ITEM VISIBILITY:
+ *   The "Import CSV/JSON" item is only rendered when `onImport` is provided.
+ *   SchemaTree passes the handler only in write/full mode (checked via
+ *   connectionInfo.mode) so the item is invisible in readonly sessions — the
+ *   user isn't offered an action that will result in a 403.
+ *
  * DISMISSAL:
  *   - Click outside (mousedown anywhere outside the menu panel)
  *   - Escape key (useEffect that listens on document)
@@ -26,17 +33,17 @@
  * VIEWPORT CLAMPING:
  *   If the cursor is near the right or bottom edge the menu would overflow.
  *   We clamp by applying max-w-[220px] and letting the browser clip naturally —
- *   acceptable for a 1-item menu that's very narrow. A full right-click library
- *   would measure the menu and flip it; that's overkill for one item.
+ *   acceptable for a 2-item menu that's very narrow. A full right-click library
+ *   would measure the menu and flip it; that's overkill here.
  */
 
 import { useEffect, useRef } from "react";
-import { StarFilledIcon } from "./icons";
+import { StarFilledIcon, ImportIcon } from "./icons";
 
 // ===== COMPONENT =====
 
 /**
- * ContextMenu — the single-item right-click menu that appears over a table row.
+ * ContextMenu — the right-click menu that appears over a table row.
  *
  * Rendered as a sibling at the SchemaTree root so it uses fixed viewport
  * positioning and is NOT clipped by the sidebar's overflow-y-auto. Only one
@@ -48,6 +55,9 @@ import { StarFilledIcon } from "./icons";
  * @param y           Vertical viewport position (clientY) in px.
  * @param isPinned    Whether the table is currently pinned — controls the label.
  * @param onPinToggle Called when the user clicks the pin/unpin menu item.
+ * @param onImport    Optional. When provided, an "Import CSV/JSON" item is
+ *                    rendered. SchemaTree passes this only in write/full mode.
+ *                    Clicking the item triggers a hidden file-input picker.
  * @param onClose     Called when the menu should close (click-outside or Escape).
  */
 export function ContextMenu({
@@ -56,6 +66,7 @@ export function ContextMenu({
   y,
   isPinned,
   onPinToggle,
+  onImport,
   onClose,
 }: {
   /** Table the menu targets. */
@@ -68,6 +79,16 @@ export function ContextMenu({
   isPinned: boolean;
   /** Called when the user clicks the pin/unpin item. */
   onPinToggle: () => void;
+  /**
+   * Optional. When provided, an "Import CSV/JSON" menu item is rendered.
+   * SchemaTree passes this callback only when the server is in write or full
+   * mode — it's omitted entirely in readonly mode so the item never appears.
+   *
+   * Clicking the item calls this handler, which in SchemaTree triggers a
+   * hidden `<input type="file">` element (programmatic .click()) so the user
+   * gets the OS file-picker without needing to drag-and-drop.
+   */
+  onImport?: () => void;
   /** Called when the menu should close (click-outside or Escape). */
   onClose: () => void;
 }) {
@@ -153,6 +174,40 @@ export function ContextMenu({
           </span>
           {isPinned ? "Unpin table" : "Pin to top"}
         </button>
+
+        {/* ── Menu item: Import CSV/JSON (write/full mode only) ──────────────
+            Rendered only when `onImport` is provided. SchemaTree passes it
+            when the server's permissionMode is "write" or "full". In readonly
+            mode this block is simply absent — not greyed out — because an
+            unavailable import is less confusing than a disabled one that the
+            user might try to enable by clicking harder.
+        */}
+        {onImport && (
+          <>
+            {/* Thin divider between pin and import actions */}
+            <div className="my-1 border-t border-[#1f2033]" />
+
+            <button
+              onClick={() => {
+                // Close the menu first so it doesn't stay open behind the
+                // OS file-picker. SchemaTree will open the picker in response.
+                onImport();
+                onClose();
+              }}
+              className={[
+                "w-full flex items-center gap-2 px-3 h-7 text-left",
+                "text-[11px] font-mono text-[#ededf0]",
+                "hover:bg-[#14142b] transition-colors duration-75",
+              ].join(" ")}
+              role="menuitem"
+            >
+              <span className="text-[#4b5563]" aria-hidden="true">
+                <ImportIcon />
+              </span>
+              Import CSV / JSON
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
