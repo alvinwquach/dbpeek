@@ -38,7 +38,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { StarFilledIcon, ImportIcon } from "./icons";
+import { StarFilledIcon, ImportIcon, EditIcon } from "./icons";
 
 // ===== COMPONENT =====
 
@@ -67,6 +67,7 @@ export function ContextMenu({
   isPinned,
   onPinToggle,
   onImport,
+  onEditStructure,
   onClose,
 }: {
   /** Table the menu targets. */
@@ -89,6 +90,15 @@ export function ContextMenu({
    * gets the OS file-picker without needing to drag-and-drop.
    */
   onImport?: () => void;
+  /**
+   * Optional. When provided, an "Edit Structure" menu item is rendered.
+   * SchemaTree passes this callback only when the server is in --full mode —
+   * stricter than onImport because ALTER TABLE is DDL and the validateQuery
+   * permission gate rejects it in --readonly and --write. Surfacing the
+   * affordance only when it can actually succeed avoids an item that always
+   * 403s, mirroring the import-item rationale.
+   */
+  onEditStructure?: () => void;
   /** Called when the menu should close (click-outside or Escape). */
   onClose: () => void;
 }) {
@@ -205,6 +215,41 @@ export function ContextMenu({
                 <ImportIcon />
               </span>
               Import CSV / JSON
+            </button>
+          </>
+        )}
+
+        {/* ── Menu item: Edit Structure (--full mode only) ──────────────────
+            Rendered only when `onEditStructure` is provided. SchemaTree
+            passes it when the server's permissionMode is exactly "full".
+            ALTER TABLE is a DDL operation and would 403 in any other mode.
+
+            The amber pencil tint warns that the action is destructive — the
+            same color treatment used in the row's hover-revealed pencil
+            button so the two affordances read as the same operation.
+        */}
+        {onEditStructure && (
+          <>
+            <div className="my-1 border-t border-[#1f2033]" />
+
+            <button
+              onClick={() => {
+                // Close the menu before opening the dialog so the menu
+                // doesn't sit on top of the modal backdrop.
+                onEditStructure();
+                onClose();
+              }}
+              className={[
+                "w-full flex items-center gap-2 px-3 h-7 text-left",
+                "text-[11px] font-mono text-[#ededf0]",
+                "hover:bg-[#14142b] transition-colors duration-75",
+              ].join(" ")}
+              role="menuitem"
+            >
+              <span className="text-[#fbbf24]" aria-hidden="true">
+                <EditIcon />
+              </span>
+              Edit Structure
             </button>
           </>
         )}

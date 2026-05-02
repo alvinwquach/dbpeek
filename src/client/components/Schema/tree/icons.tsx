@@ -235,6 +235,48 @@ export function ImportIcon() {
   );
 }
 
+// ===== EDIT (PENCIL) =====
+
+/**
+ * Pencil glyph used for the "Edit Structure" action on a table row.
+ *
+ * WHY a pencil and not a wrench / settings cog:
+ *   The action specifically edits a structural artefact (the column list).
+ *   Pencils universally read as "edit this thing" in dev tooling — wrench /
+ *   cog imply settings or general configuration, which would mis-suggest
+ *   that the dialog edits something other than the table itself.
+ *
+ * WHY currentColor:
+ *   The icon's tint follows the parent's text color so the same SVG can be
+ *   reused for the dim idle state (slate) and the hover state (amber) by
+ *   swapping `text-*` utility classes in the parent button.
+ */
+export function EditIcon() {
+  return (
+    <svg
+      className="w-3 h-3 shrink-0"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* Diagonal pencil body (eraser end at top-right, tip at bottom-left). */}
+      <path
+        d="M8 2L10 4L4 10H2V8L8 2Z"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+      {/* Ferrule line — separates pencil body from the eraser cap. */}
+      <path
+        d="M7 3L9 5"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 // ===== ERD =====
 
 /**

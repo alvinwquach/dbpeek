@@ -88,11 +88,13 @@ import { useAppStore } from "../../stores/app";
 import type { ColumnInfo } from "../../hooks/useSchema";
 import { ColumnStats } from "./ColumnStats";
 import { DdlViewer } from "./DdlViewer";
+import { TableEditor } from "./TableEditor";
 import { SearchInput } from "./tree/SearchInput";
 import { TableRow } from "./tree/TableRow";
 import { ContextMenu } from "./tree/ContextMenu";
 import { ErdIcon } from "./tree/icons";
 import { ImportPreview } from "../Import/ImportPreview";
+import type { Dialect } from "../../../types/connection";
 
 // ===== TYPES =====
 
@@ -214,6 +216,15 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
   const canImport =
     connectionInfo?.mode === "write" || connectionInfo?.mode === "full";
 
+  // canEditStructure is stricter — ALTER TABLE is DDL, only allowed in --full.
+  // Surfacing the affordance only in --full keeps the UI honest with the
+  // server's permission gate (validateQuery rejects DDL otherwise).
+  const canEditStructure = connectionInfo?.mode === "full";
+
+  // The active dialect is needed by TableEditor to pick ALTER TABLE syntax.
+  // Cast through Dialect because StatusResponse types it as plain string.
+  const dialect = (connectionInfo?.dialect ?? "postgres") as Dialect;
+
   // ── Local state ────────────────────────────────────────────────────────────
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -242,6 +253,18 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
    * Null → dialog is closed. Non-null → dialog is open.
    */
   const [importTarget, setImportTarget] = useState<ImportTarget | null>(null);
+
+  /**
+   * Table currently being edited via the TableEditor dialog.
+   * Null → dialog is closed. Non-null → dialog is open and edits the named table.
+   *
+   * WHY a single string and not a (table, columns) pair like importTarget:
+   *   The dialog reads its column list from schemaColumns at open time. Storing
+   *   the table name only keeps the open/close flow trivial and lets the dialog
+   *   pick up freshly-refreshed column data after a successful ALTER (if the
+   *   user reopens it later).
+   */
+  const [editTarget, setEditTarget] = useState<string | null>(null);
 
   /**
    * Table targeted by the hidden file-input picker (context menu / button path).
@@ -488,6 +511,22 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
   /** Closes the ImportPreview dialog. */
   const closeImport = useCallback(() => setImportTarget(null), []);
 
+  // ── Edit Structure: open / close ──────────────────────────────────────────
+
+  /**
+   * Triggered by the row's pencil button OR the context-menu "Edit Structure"
+   * item. Opens TableEditor for the named table.
+   *
+   * The handler does NOT re-check canEditStructure — both call sites are
+   * already gated on it. The server's validateQuery is the real boundary.
+   */
+  const handleEditStructureClick = useCallback((tableName: string) => {
+    setEditTarget(tableName);
+  }, []);
+
+  /** Closes the TableEditor dialog. */
+  const closeEditor = useCallback(() => setEditTarget(null), []);
+
   // ── Shared TableRow props factory ─────────────────────────────────────────
   //
   // Most TableRow props are the same between the pinned and non-pinned lists.
@@ -517,6 +556,7 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
           : null,
       isDragOver: dragOverTable === name,
       canImport,
+      canEditStructure,
       onToggleExpand: () => toggleExpand(name),
       onPreviewClick: (e: React.MouseEvent) => handlePreviewClick(e, name),
       onDdlClick: (e: React.MouseEvent) => handleDdlClick(e, name),
@@ -529,6 +569,11 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
       onDrop: (e: React.DragEvent) => handleDrop(e, name),
       ...(canImport
         ? { onImportClick: (_e: React.MouseEvent) => handleImportClick(name) }
+        : {}),
+      // The pencil button is rendered ONLY when the server is in --full mode.
+      // Same fast-fail-vs-403 reasoning as canImport, but stricter gate.
+      ...(canEditStructure
+        ? { onEditStructureClick: (_e: React.MouseEvent) => handleEditStructureClick(name) }
         : {}),
     };
   }
@@ -674,6 +719,12 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
           {...(canImport
             ? { onImport: () => handleImportClick(contextMenu.table) }
             : {})}
+          {...(canEditStructure
+            ? {
+                onEditStructure: () =>
+                  handleEditStructureClick(contextMenu.table),
+              }
+            : {})}
         />
       )}
 
@@ -690,6 +741,27 @@ export function SchemaTree({ onPreview }: SchemaTreeProps) {
           file={importTarget.file}
           tableColumns={schemaColumns?.[importTarget.table] ?? []}
           onClose={closeImport}
+        />
+      )}
+
+      {/* ===== TABLE EDITOR MODAL ===== */}
+      {/*
+        Sibling-rendered for the same overflow-clipping reason as the other
+        modals. Only mounted when editTarget is set (the dialog drives its
+        full lifecycle internally) and only entered via canEditStructure
+        gates upstream — so this block is dead code in non-full modes.
+
+        The `key` ensures that opening a different table after a successful
+        ALTER remounts TableEditor with a fresh working state instead of
+        holding onto the previous table's edits.
+      */}
+      {editTarget && canEditStructure && (
+        <TableEditor
+          key={editTarget}
+          table={editTarget}
+          columns={schemaColumns?.[editTarget] ?? []}
+          dialect={dialect}
+          onClose={closeEditor}
         />
       )}
 
