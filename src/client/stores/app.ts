@@ -115,6 +115,13 @@ interface AppState {
   /** Populated by StatusBar on mount via GET /api/status. Null = not yet loaded. */
   connectionInfo: StatusResponse | null;
 
+  /**
+   * Timestamp when the SPA first mounted. Used by SessionReport to compute
+   * "time connected" without any round-trip. Captured once in the initial
+   * store state and never mutated — the start of the session is immutable.
+   */
+  sessionStartTime: Date;
+
   // ── Schema state (populated by useSchema on mount) ─────────────────────────
 
   /**
@@ -326,6 +333,10 @@ export const useAppStore = create<AppState>()((set) => ({
   // ── Initial state ───────────────────────────────────────────────────────────
 
   connectionInfo: null,
+
+  // Captured once at store creation so every session report shows elapsed time
+  // relative to the moment the tab was first opened, not the first query.
+  sessionStartTime: new Date(),
 
   schemaMap: null,
   schemaColumns: null,

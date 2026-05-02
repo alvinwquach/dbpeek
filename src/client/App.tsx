@@ -58,6 +58,7 @@ import { useSchema } from "./hooks/useSchema";
 import { useAppStore } from "./stores/app";
 import { formatSql } from "./utils/formatSql";
 import { parseSqlParams } from "./components/Editor/SqlEditor";
+import { SessionReport } from "./components/SessionReport";
 
 // ===== LAYOUT CONSTANTS =====
 
@@ -116,6 +117,11 @@ export default function App() {
   // toggleHistory is also wired to Cmd+H below.
   const historyOpen = useAppStore((s) => s.historyOpen);
   const toggleHistory = useAppStore((s) => s.toggleHistory);
+
+  // ── Session report ────────────────────────────────────────────────────────
+  // Cmd+D (or Ctrl+D) opens a modal summarising the current session before the
+  // user closes the terminal or the browser tab.
+  const [sessionReportOpen, setSessionReportOpen] = useState(false);
 
   // ── Panel resize state ───────────────────────────────────────────────────────
   const [editorHeightPct, setEditorHeightPct] = useState(0.4);
@@ -304,10 +310,16 @@ export default function App() {
         e.preventDefault();
         handleExplainClick();
       }
+
+      // Cmd+D — open session report modal
+      if (isMod && e.key === "d") {
+        e.preventDefault();
+        setSessionReportOpen(true);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [toggleHistory, handleFormatClick, handleExplainClick]);
+  }, [toggleHistory, handleFormatClick, handleExplainClick, setSessionReportOpen]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0a0a0f] text-[#ededf0] overflow-hidden">
@@ -547,6 +559,16 @@ export default function App() {
 
       {/* ===== BOTTOM: STATUS BAR ===== */}
       <StatusBar />
+
+      {/* ===== SESSION REPORT MODAL ===== */}
+      {/*
+        Conditionally rendered so it occupies zero DOM when closed.
+        Cmd+D (wired in the keydown effect above) flips sessionReportOpen to
+        true; the modal's onClose callback flips it back to false.
+      */}
+      {sessionReportOpen && (
+        <SessionReport onClose={() => setSessionReportOpen(false)} />
+      )}
 
     </div>
   );
