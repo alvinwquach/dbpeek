@@ -40,6 +40,7 @@ import {
   DdlIcon,
   StarFilledIcon,
   ImportIcon,
+  EditIcon,
 } from "./icons";
 import { ColumnRow } from "./ColumnRow";
 
@@ -91,6 +92,10 @@ export function formatRowCount(n: number): string {
  *                        Triggers a blue-tinted drop-target highlight.
  * @param canImport       True when the server is in write or full mode.
  *                        When false, the import hover-button is hidden.
+ * @param canEditStructure True when the server is in --full mode.
+ *                        When false, the Edit Structure pencil button is hidden.
+ *                        Stricter than canImport because ALTER TABLE is a DDL
+ *                        operation that can break things in irreversible ways.
  * @param onToggleExpand  Called when the row header is clicked.
  * @param onPreviewClick  Called when the preview (eye) icon is clicked.
  * @param onDdlClick      Called when the DDL (brackets) icon is clicked.
@@ -104,6 +109,9 @@ export function formatRowCount(n: number): string {
  * @param onImportClick   Called when the import (upload) icon button is clicked.
  *                        Triggers the file-picker in SchemaTree. Only present when
  *                        canImport is true.
+ * @param onEditStructureClick Called when the Edit Structure (pencil) icon
+ *                        button is clicked. Opens the TableEditor dialog in
+ *                        SchemaTree. Only present when canEditStructure is true.
  */
 export function TableRow({
   name,
@@ -115,6 +123,7 @@ export function TableRow({
   selectedColumn,
   isDragOver,
   canImport,
+  canEditStructure,
   onToggleExpand,
   onPreviewClick,
   onDdlClick,
@@ -125,6 +134,7 @@ export function TableRow({
   onDragLeave,
   onDrop,
   onImportClick,
+  onEditStructureClick,
 }: {
   name: string;
   columns: ColumnInfo[];
@@ -151,6 +161,14 @@ export function TableRow({
    * so the user isn't offered an action that will result in a 403.
    */
   canImport: boolean;
+  /**
+   * True ONLY when the server was started in --full mode.
+   * The Edit Structure pencil button is hidden in --readonly and --write
+   * because ALTER TABLE is DDL and the validateQuery permission gate
+   * rejects it in any mode below full. Surfacing the affordance only when
+   * it can actually succeed avoids an action that always 403s.
+   */
+  canEditStructure: boolean;
   onToggleExpand: () => void;
   onPreviewClick: (e: React.MouseEvent) => void;
   /** Opens the DDL viewer modal for this table. */
@@ -188,6 +206,12 @@ export function TableRow({
    * Only rendered when canImport is true.
    */
   onImportClick?: (e: React.MouseEvent) => void;
+  /**
+   * Optional. When provided, clicking the Edit Structure pencil button calls
+   * this handler so SchemaTree can open the TableEditor dialog. Only rendered
+   * when canEditStructure is true (i.e. server is in --full mode).
+   */
+  onEditStructureClick?: (e: React.MouseEvent) => void;
 }) {
   // Filter columns when searching. We only narrow if the table name DIDN'T
   // match — otherwise show all columns (the user opened the table to browse,
@@ -331,6 +355,30 @@ export function TableRow({
             title={`Import CSV or JSON into ${name}`}
           >
             <ImportIcon />
+          </button>
+        )}
+
+        {/* ── Edit Structure button (--full mode only) ──────────────────────
+            ALTER TABLE is a DDL operation, so this affordance is gated to
+            --full mode at the entry point — the server's validateQuery
+            rejects DDL in any other mode anyway. The amber hover tint warns
+            that the action is destructive: editing structure can drop
+            columns and rewrite types in irreversible ways.
+
+            stopPropagation prevents the row's onClick (toggle expand) from
+            also firing — same reasoning as the import / DDL buttons.
+        */}
+        {canEditStructure && onEditStructureClick && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditStructureClick(e);
+            }}
+            className="shrink-0 flex items-center justify-center w-5 h-5 rounded text-[#4b5563] hover:text-[#fbbf24] hover:bg-[#1f1500] opacity-0 group-hover:opacity-100 transition-opacity duration-100"
+            aria-label={`Edit structure of ${name}`}
+            title={`Edit structure of ${name}`}
+          >
+            <EditIcon />
           </button>
         )}
       </div>
