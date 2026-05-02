@@ -18,6 +18,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { StatusResponse } from "../stores/app";
+import { useThemeStore } from "../stores/theme";
 
 // ===== QUERY =====
 
@@ -68,17 +69,30 @@ export function StatusBar() {
     retry: 1,
   });
 
+  const theme = useThemeStore((s) => s.theme);
+  const toggleTheme = useThemeStore((s) => s.toggleTheme);
+
   return (
     // h-6 = 24px. shrink-0 prevents the status bar from being squished by
     // the flex layout when the center column grows.
-    <div className="flex items-center h-6 px-3 gap-x-3 bg-[#0d0d17] border-t border-[#1f2033] text-[10px] text-[#6b7280] font-mono select-none shrink-0 overflow-hidden">
-      {isPending && (
-        <span className="text-[#374151] italic">connecting…</span>
-      )}
-      {isError && (
-        <span className="text-[#f87171] italic">could not reach /api/status</span>
-      )}
-      {data !== undefined && <ConnectedContent info={data} />}
+    <div className="flex items-center justify-between h-6 px-3 gap-x-3 bg-[var(--bg-secondary)] border-t border-[var(--border-color)] text-[10px] text-[var(--text-muted)] font-mono select-none shrink-0 overflow-hidden">
+      <div className="flex items-center gap-x-3">
+        {isPending && (
+          <span className="text-[var(--text-light)] italic">connecting…</span>
+        )}
+        {isError && (
+          <span className="text-red-500 italic">could not reach /api/status</span>
+        )}
+        {data !== undefined && <ConnectedContent info={data} />}
+      </div>
+      <button
+        onClick={toggleTheme}
+        className="flex items-center justify-center w-5 h-5 rounded hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer text-[var(--text-secondary)]"
+        title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+        aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      >
+        {theme === "dark" ? "☀️" : "🌙"}
+      </button>
     </div>
   );
 }
@@ -113,15 +127,15 @@ function ConnectedContent({ info }: { info: StatusResponse }) {
 function StatusItem({ label, value }: { label: string; value: string }) {
   return (
     <span className="flex items-center gap-1 whitespace-nowrap">
-      <span className="text-[#374151]">{label}</span>
-      <span className="text-[#9ca3af]">{value}</span>
+      <span className="text-[var(--text-light)]">{label}</span>
+      <span className="text-[var(--text-secondary)]">{value}</span>
     </span>
   );
 }
 
 /** Thin separator between status items. */
 function Pipe() {
-  return <span className="text-[#1f2033] select-none">│</span>;
+  return <span className="text-[var(--border-color)] select-none">│</span>;
 }
 
 /**
@@ -132,7 +146,7 @@ function ConnectionDot({ connected }: { connected: boolean }) {
   return (
     <span
       className={`flex items-center gap-1 whitespace-nowrap ${
-        connected ? "text-[#34d399]" : "text-[#f87171]"
+        connected ? "text-green-500" : "text-red-500"
       }`}
     >
       <span aria-hidden="true">{connected ? "●" : "○"}</span>

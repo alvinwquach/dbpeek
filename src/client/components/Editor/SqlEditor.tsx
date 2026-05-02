@@ -108,6 +108,7 @@ import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { useAppStore } from "../../stores/app";
+import { useThemeStore } from "../../stores/theme";
 
 // ===== UTILITIES =====
 
@@ -278,74 +279,84 @@ export function buildParamValues(
 // ===== THEME =====
 
 /**
- * dbpeekTheme overrides the oneDark theme's background and gutter colors to
- * match the app-wide dark palette (bg-[#0a0a0f], sidebar bg-[#0c0c14]).
+ * Create the dbpeekTheme override based on the current theme.
+ * This overrides the oneDark theme's background and gutter colors to
+ * match the app-wide palette.
  *
  * WHY placed AFTER oneDark in the extensions array:
  *   CodeMirror 6 themes are applied in extension order. A later theme wins on
  *   conflicting selectors. Placing dbpeekTheme after oneDark ensures our
  *   background overrides land without needing `!important` everywhere.
- *
- * Selector reference:
- *   "&"                    — the .cm-editor root element
- *   "&.cm-focused"         — root when the editor has keyboard focus
- *   ".cm-scroller"         — the scrollable wrapper inside .cm-editor
- *   ".cm-gutters"          — the gutter region (line numbers)
- *   ".cm-activeLineGutter" — gutter cell on the cursor's current line
- *   ".cm-activeLine"       — the cursor's current line in the content area
- *   ".cm-selectionBackground" — selection highlight
- *   ".cm-placeholder"      — the placeholder text (from the placeholder() ext)
  */
-const dbpeekTheme = EditorView.theme({
-  // Root element must fill its container so the editor panel stretches to 100%.
-  "&": {
-    height: "100%",
-    backgroundColor: "#0a0a0f",
-    color: "#ededf0",
-  },
-  // Remove the default blue browser outline on focus; the activeLine highlight
-  // already provides a clear visual indicator of focus.
-  "&.cm-focused": {
-    outline: "none",
-  },
-  // Scroller is the actual scrollable content area. We configure the font stack
-  // here because CM renders code text inside .cm-scroller > .cm-content.
-  ".cm-scroller": {
-    overflow: "auto",
-    fontFamily:
-      "'Cascadia Code', 'JetBrains Mono', 'Fira Code', ui-monospace, Menlo, monospace",
-    fontSize: "13px",
-    lineHeight: "1.6",
-  },
-  // Gutter: slightly darker than the editor background, matches the sidebar.
-  ".cm-gutters": {
-    backgroundColor: "#0c0c14",
-    borderRight: "1px solid #1f2033",
-    color: "#374151",
-  },
-  // Active line gutter cell is a touch brighter than the inactive gutter.
-  ".cm-activeLineGutter": {
-    backgroundColor: "#0f0f1a",
-    color: "#6b7280",
-  },
-  // Active line background: subtle, just enough to locate the cursor at a glance.
-  ".cm-activeLine": {
-    backgroundColor: "#0f0f1a",
-  },
-  // Text cursor.
-  ".cm-cursor, .cm-dropCursor": {
-    borderLeftColor: "#ededf0",
-  },
-  // Selection highlight. !important because oneDark's specificity wins otherwise.
-  ".cm-selectionBackground, ::selection": {
-    backgroundColor: "#2a2a4a !important",
-  },
-  // Placeholder italic text shown when the editor is empty.
-  ".cm-placeholder": {
-    color: "#2d3047",
-    fontStyle: "italic",
-  },
-});
+function createDbpeekTheme(isDark: boolean) {
+  const darkColors = {
+    bg: "#0a0a0f",
+    bgSecondary: "#0c0c14",
+    bgTertiary: "#0f0f1a",
+    text: "#ededf0",
+    textMuted: "#6b7280",
+    textSecondary: "#9ca3af",
+    textLight: "#374151",
+    border: "#1f2033",
+    selection: "#2a2a4a",
+    placeholder: "#2d3047",
+  };
+
+  const lightColors = {
+    bg: "#ffffff",
+    bgSecondary: "#f9f9fb",
+    bgTertiary: "#f3f3f6",
+    text: "#1f2937",
+    textMuted: "#9ca3af",
+    textSecondary: "#6b7280",
+    textLight: "#e5e7eb",
+    border: "#e5e7eb",
+    selection: "#dbeafe",
+    placeholder: "#d1d5db",
+  };
+
+  const colors = isDark ? darkColors : lightColors;
+
+  return EditorView.theme({
+    "&": {
+      height: "100%",
+      backgroundColor: colors.bg,
+      color: colors.text,
+    },
+    "&.cm-focused": {
+      outline: "none",
+    },
+    ".cm-scroller": {
+      overflow: "auto",
+      fontFamily:
+        "'Cascadia Code', 'JetBrains Mono', 'Fira Code', ui-monospace, Menlo, monospace",
+      fontSize: "13px",
+      lineHeight: "1.6",
+    },
+    ".cm-gutters": {
+      backgroundColor: colors.bgSecondary,
+      borderRight: `1px solid ${colors.border}`,
+      color: colors.textLight,
+    },
+    ".cm-activeLineGutter": {
+      backgroundColor: colors.bgTertiary,
+      color: colors.textMuted,
+    },
+    ".cm-activeLine": {
+      backgroundColor: colors.bgTertiary,
+    },
+    ".cm-cursor, .cm-dropCursor": {
+      borderLeftColor: colors.text,
+    },
+    ".cm-selectionBackground, ::selection": {
+      backgroundColor: `${colors.selection} !important`,
+    },
+    ".cm-placeholder": {
+      color: colors.placeholder,
+      fontStyle: "italic",
+    },
+  });
+}
 
 // ===== TYPES =====
 
@@ -430,6 +441,9 @@ export function SqlEditor({
   const activeTabIndex = useAppStore((s) => s.activeTabIndex);
   const loadNonce = useAppStore((s) => s.tabs[s.activeTabIndex]?.loadNonce ?? 0);
 
+  // ── Theme state ────────────────────────────────────────────────────────────
+  const theme = useThemeStore((s) => s.theme);
+
   // ── Parameter binding state ───────────────────────────────────────────────
   // params: ordered list of detected $N / :name placeholders, re-derived on
   //   every doc change so the input strip stays in sync as the user types.
@@ -464,6 +478,7 @@ export function SqlEditor({
   //   initializer runs inside the render function regardless — there's no
   //   functional difference here, just semantics.
   const sqlCompartment = useMemo(() => new Compartment(), []);
+  const themeCompartment = useMemo(() => new Compartment(), []);
 
   // ── Callback refs (the "always-current" pattern) ─────────────────────────
   // These are assigned synchronously on every render, before any effects fire.
@@ -535,7 +550,8 @@ export function SqlEditor({
           oneDark,
           // dbpeekTheme overrides backgrounds, gutters, and font to match the app.
           // Must come AFTER oneDark so its selectors take precedence.
-          dbpeekTheme,
+          // Wrapped in themeCompartment for hot-swapping when theme changes.
+          themeCompartment.of(createDbpeekTheme(theme === "dark")),
 
           // ── Placeholder ───────────────────────────────────────────────────
           // Shown only when the editor document is empty. Fades out on first keystroke.
@@ -671,6 +687,18 @@ export function SqlEditor({
       effects: sqlCompartment.reconfigure(sqlExtension),
     });
   }, [schemaMap, sqlCompartment]);
+
+  // ── Theme change effect ────────────────────────────────────────────────────
+  // Runs when the theme changes. Reconfigures the theme compartment with the
+  // new colors without disrupting the editor state.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    view.dispatch({
+      effects: themeCompartment.reconfigure(createDbpeekTheme(theme === "dark")),
+    });
+  }, [theme, themeCompartment]);
 
   // ── Tab-switch effect ─────────────────────────────────────────────────────
   // Runs when tabId changes (i.e. the user clicked a different tab).

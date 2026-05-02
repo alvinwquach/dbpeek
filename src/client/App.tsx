@@ -322,14 +322,14 @@ export default function App() {
   }, [toggleHistory, handleFormatClick, handleExplainClick, setSessionReportOpen]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#0a0a0f] text-[#ededf0] overflow-hidden">
+    <div className="flex flex-col h-screen w-screen bg-[var(--bg-primary)] text-[var(--text-primary)] overflow-hidden">
 
       {/* ===== MAIN ROW: sidebar + center column ===== */}
       <div className="flex flex-1 min-h-0">
 
         {/* ── LEFT: SCHEMA SIDEBAR ──────────────────────────────────────── */}
         <aside
-          className="flex flex-col shrink-0 border-r border-[#1f2033] bg-[#0c0c14] overflow-hidden"
+          className="flex flex-col shrink-0 border-r border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden"
           style={{ width: SIDEBAR_WIDTH_PX }}
         >
           <SchemaTree onPreview={handleRun} />
@@ -352,8 +352,8 @@ export default function App() {
             <EditorTabs />
 
             {/* Panel header: "SQL Editor" label + Run button */}
-            <div className="flex items-center justify-between px-3 h-8 border-b border-[#1f2033] shrink-0">
-              <span className="text-[10px] uppercase tracking-widest text-[#4b5563]">
+            <div className="flex items-center justify-between px-3 h-8 border-b border-[var(--border-color)] shrink-0">
+              <span className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
                 SQL Editor
               </span>
 
@@ -364,7 +364,7 @@ export default function App() {
                 */}
                 <button
                   onClick={handleFormatClick}
-                  className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#9ca3af] border border-[#2a2a4a] transition-colors duration-100 select-none"
+                  className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[var(--bg-tertiary)] hover:bg-[var(--border-light)] active:bg-[var(--border-color)] text-[var(--text-secondary)] border border-[var(--border-light)] transition-colors duration-100 select-none"
                   title="Format SQL"
                 >
                   Format
@@ -382,7 +382,7 @@ export default function App() {
                     (activeTab?.loading ?? false) ||
                     (activeTab?.explainLoading ?? false)
                   }
-                  className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#9ca3af] border border-[#2a2a4a] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100 select-none"
+                  className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[var(--bg-tertiary)] hover:bg-[var(--border-light)] active:bg-[var(--border-color)] text-[var(--text-secondary)] border border-[var(--border-light)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100 select-none"
                   title="Show query plan"
                 >
                   {activeTab?.explainLoading ? "Planning…" : "Explain"}
@@ -398,8 +398,8 @@ export default function App() {
                   onClick={activeTab?.loading ? handleCancelClick : handleRunButtonClick}
                   className={
                     activeTab?.loading
-                      ? "flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#2d1515] hover:bg-[#3d1a1a] active:bg-[#4a1f1f] text-[#f87171] border border-[#5a2020] transition-colors duration-100 select-none"
-                      : "flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[#14142b] hover:bg-[#1c1c38] active:bg-[#22223d] text-[#7c85d6] border border-[#2a2a4a] transition-colors duration-100 select-none"
+                      ? "flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-red-900/30 hover:bg-red-800/40 active:bg-red-800/50 text-red-400 border border-red-700/30 transition-colors duration-100 select-none"
+                      : "flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-blue-900/30 hover:bg-blue-800/40 active:bg-blue-800/50 text-blue-400 border border-blue-700/30 transition-colors duration-100 select-none"
                   }
                   title={activeTab?.loading ? "Cancel query" : "Run query (Cmd+Enter)"}
                 >
@@ -412,7 +412,7 @@ export default function App() {
                           ? `Run (${paramCount} param${paramCount !== 1 ? "s" : ""})`
                           : "Run"}
                       </span>
-                      <span className="text-[#4b5563]">⌘↵</span>
+                      <span className="text-[var(--text-muted)]">⌘↵</span>
                     </>
                   )}
                 </button>
@@ -441,7 +441,7 @@ export default function App() {
 
           {/* ── RESIZE DIVIDER ── */}
           <div
-            className="h-1 bg-[#1f2033] hover:bg-[#3b4070] cursor-ns-resize shrink-0 transition-colors duration-100"
+            className="h-1 bg-[var(--border-color)] hover:bg-blue-500/30 cursor-ns-resize shrink-0 transition-colors duration-100"
             onMouseDown={onDividerMouseDown}
             role="separator"
             aria-orientation="horizontal"
@@ -450,8 +450,8 @@ export default function App() {
 
           {/* ── QUERY RESULTS PANEL ── */}
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <div className="flex items-center justify-between px-3 h-8 border-b border-[#1f2033] shrink-0">
-              <span className="text-[10px] uppercase tracking-widest text-[#4b5563]">
+            <div className="flex items-center justify-between px-3 h-8 border-b border-[var(--border-color)] shrink-0">
+              <span className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
                 {activeTab?.viewMode === "explain"
                   ? "Plan"
                   : activeTab?.viewMode === "chart"
@@ -471,8 +471,8 @@ export default function App() {
                   onClick={() => handleViewModeToggle("grid")}
                   className={`px-2 h-5 rounded border transition-colors duration-100 select-none ${
                     activeTab?.viewMode === "grid"
-                      ? "bg-[#14142b] text-[#7c85d6] border-[#2a2a4a]"
-                      : "bg-transparent text-[#4b5563] border-[#1f2033] hover:text-[#7c85d6]"
+                      ? "bg-blue-900/30 text-blue-400 border-blue-700/30"
+                      : "bg-transparent text-[var(--text-muted)] border-[var(--border-color)] hover:text-blue-400"
                   }`}
                   title="Show row results"
                 >
@@ -483,8 +483,8 @@ export default function App() {
                   onClick={() => handleViewModeToggle("chart")}
                   className={`px-2 h-5 rounded border transition-colors duration-100 select-none ${
                     activeTab?.viewMode === "chart"
-                      ? "bg-[#14142b] text-[#7c85d6] border-[#2a2a4a]"
-                      : "bg-transparent text-[#4b5563] border-[#1f2033] hover:text-[#7c85d6]"
+                      ? "bg-blue-900/30 text-blue-400 border-blue-700/30"
+                      : "bg-transparent text-[var(--text-muted)] border-[var(--border-color)] hover:text-blue-400"
                   }`}
                   title="Show chart visualization"
                 >
@@ -495,8 +495,8 @@ export default function App() {
                   onClick={() => handleViewModeToggle("explain")}
                   className={`px-2 h-5 rounded border transition-colors duration-100 select-none ${
                     activeTab?.viewMode === "explain"
-                      ? "bg-[#14142b] text-[#7c85d6] border-[#2a2a4a]"
-                      : "bg-transparent text-[#4b5563] border-[#1f2033] hover:text-[#7c85d6]"
+                      ? "bg-blue-900/30 text-blue-400 border-blue-700/30"
+                      : "bg-transparent text-[var(--text-muted)] border-[var(--border-color)] hover:text-blue-400"
                   }`}
                   title="Show query plan"
                 >
