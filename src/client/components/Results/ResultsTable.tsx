@@ -72,6 +72,8 @@ import { ColumnResizeHandle } from "./ColumnResizeHandle";
 import { SortIndicator } from "./SortIndicator";
 import { CellContextMenu } from "./CellContextMenu";
 import { ValueViewer } from "./ValueViewer";
+import { EditConfirmDialog } from "./EditConfirmDialog";
+import { useCellEdit, explainAvailability } from "../../hooks/useCellEdit";
 
 // ===== TANSTACK MODULE AUGMENTATION =====
 
@@ -267,6 +269,129 @@ const dbFilterFn: FilterFn<RowData> = (
 dbFilterFn.autoRemove = (val: unknown): boolean =>
   !val || (typeof val === "string" && val.trim() === "");
 
+// ===== CELL EDITOR =====
+
+/**
+ * coerceTypedValue — turns the user-typed string into the JS value sent to
+ * the server.
+ *
+ * Logic mirrors common database-GUI conventions and matches what users
+ * already see in the cell renderer (NULL, true/false). Numeric columns
+ * get parseFloat treatment when the input is a clean number; everything
+ * else stays a string and the database driver does the column-type
+ * coercion.
+ *
+ *   ""      → null   (matches the convention of "blank means NULL")
+ *   "NULL"  → null   (case-insensitive — matches the rendered NULL label)
+ *   "true"  → true   (boolean column convenience)
+ *   "false" → false
+ *   numeric input on a numeric column → number
+ *   anything else → string verbatim
+ */
+function coerceTypedValue(input: string, isNumeric: boolean): unknown {
+  if (input === "") return null;
+  const upper = input.toUpperCase();
+  if (upper === "NULL") return null;
+  if (upper === "TRUE") return true;
+  if (upper === "FALSE") return false;
+  if (isNumeric) {
+    const n = Number(input);
+    if (!Number.isNaN(n)) return n;
+  }
+  return input;
+}
+
+/**
+ * stringifyForInput — converts the cell's raw value back to the string form
+ * shown inside the edit input. Reverse of coerceTypedValue, mostly.
+ *
+ * NULL → "" so the user can blank-and-Enter to revert to NULL without
+ * typing the literal "NULL". Booleans render as their lowercase forms
+ * matching the cell renderer.
+ */
+function stringifyForInput(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+/**
+ * CellEditor — the inline <input> rendered in place of a cell's value while
+ * editing.
+ *
+ * Lifecycle:
+ *   - Mounts when the user double-clicks an editable cell.
+ *   - Auto-focuses + selects the existing value so a single keystroke
+ *     replaces it (DBeaver / spreadsheet convention).
+ *   - Enter / Tab fires onCommit(newValue) — parent decides what to do
+ *     with it (open the confirmation dialog).
+ *   - Escape fires onCancel() — parent unmounts the editor without saving.
+ *
+ * WHY a controlled input with local state (not parent state):
+ *   The parent only cares about the FINAL committed value. Driving the
+ *   input from parent state would re-render the table on every keystroke
+ *   for nothing. Local state keeps typing snappy.
+ */
+function CellEditor({
+  initialValue,
+  isNumeric,
+  onCommit,
+  onCancel,
+}: {
+  initialValue: unknown;
+  isNumeric: boolean;
+  onCommit: (newValue: unknown) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState<string>(() => stringifyForInput(initialValue));
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Auto-focus + select all so a single keystroke overwrites the existing
+    // text. Matches the DBeaver / Excel / TablePlus convention.
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === "Tab") {
+          // Tab usually moves focus; we capture it here so it commits the
+          // edit instead. preventDefault stops the default focus traversal
+          // from yanking focus out of the cell mid-commit.
+          e.preventDefault();
+          e.stopPropagation();
+          onCommit(coerceTypedValue(value, isNumeric));
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+      // Click inside the input must not bubble to the <td>, which would
+      // trigger the ValueViewer-open onClick and shift focus.
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      // Losing focus is treated as cancel, matching DBeaver. We'd rather
+      // discard a stray click-away than silently fire an UPDATE the user
+      // didn't deliberately confirm.
+      onBlur={() => onCancel()}
+      spellCheck={false}
+      className={[
+        "w-full bg-[#0a0a0f] border border-[#3b82f6] rounded",
+        "px-1.5 py-0.5 text-xs font-mono outline-none",
+        "text-[#ededf0]",
+        isNumeric ? "text-right tabular-nums" : "text-left",
+      ].join(" ")}
+    />
+  );
+}
+
 // ===== COMPONENT =====
 
 /** Props for ResultsTable. */
@@ -321,12 +446,96 @@ export function ResultsTable({ result }: ResultsTableProps) {
    */
   const [showCopied, setShowCopied] = useState(false);
 
+  // ── Cell-edit state ─────────────────────────────────────────────────────
+  // useCellEdit owns the dirty/undo bookkeeping AND the editability decision.
+  // ResultsTable owns only the EPHEMERAL UI state for the in-progress edit:
+  //   editingCell    — which cell the input is rendered for, plus the row's
+  //                    original value (so Escape can roll back the input).
+  //   pendingEdit    — once the user presses Enter, the new value plus the
+  //                    pre-built SQL preview are stashed here and the
+  //                    EditConfirmDialog mounts. Confirm flushes through
+  //                    cellEdit.saveEdit; Cancel discards.
+  //   uneditableMsg  — transient banner shown when a double-click on an
+  //                    uneditable cell is denied; auto-clears after 2 s.
+  const cellEdit = useCellEdit({ result });
+
+  /**
+   * The cell currently being edited (input rendered in place of its value),
+   * or null when no edit is in progress.
+   */
+  const [editingCell, setEditingCell] = useState<
+    | { rowIndex: number; colIndex: number }
+    | null
+  >(null);
+
+  /**
+   * After the user presses Enter inside the edit input we capture the new
+   * value plus a pre-built SQL preview here, then mount the confirmation
+   * dialog. Null when no confirmation is pending.
+   */
+  const [pendingEdit, setPendingEdit] = useState<
+    | {
+        rowIndex: number;
+        colIndex: number;
+        newValue: unknown;
+        sql: string;
+        table: string;
+        column: string;
+        pk: Record<string, unknown>;
+      }
+    | null
+  >(null);
+
+  /**
+   * Banner-style refusal message. Shown briefly when the user double-clicks
+   * a cell that can't be edited (read-only mode, multi-table query, etc.)
+   * so they understand why nothing happened.
+   */
+  const [uneditableMsg, setUneditableMsg] = useState<string | null>(null);
+  useEffect(() => {
+    if (!uneditableMsg) return;
+    const timer = setTimeout(() => setUneditableMsg(null), 2500);
+    return () => clearTimeout(timer);
+  }, [uneditableMsg]);
+
   /** Auto-dismiss the "Copied!" toast after 1.5 s. */
   useEffect(() => {
     if (!showCopied) return;
     const timer = setTimeout(() => setShowCopied(false), 1500);
     return () => clearTimeout(timer);
   }, [showCopied]);
+
+  // ── Cmd/Ctrl+Z — undo last cell edit ─────────────────────────────────────
+  // Bound at the window level so the shortcut works regardless of which
+  // element has focus. Bails out if:
+  //   - any text input / textarea is focused (so Cmd+Z keeps doing the
+  //     native text-undo inside the SqlEditor or filter inputs),
+  //   - a cell is currently being edited (the input owns its own undo),
+  //   - the confirmation dialog is open,
+  //   - a save is already in flight.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const isMod = e.metaKey || e.ctrlKey;
+      if (!isMod || e.key.toLowerCase() !== "z") return;
+      // Native text undo wins inside editable text fields.
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName.toLowerCase();
+      if (tag === "input" || tag === "textarea" || target?.isContentEditable) {
+        return;
+      }
+      if (editingCell !== null || pendingEdit !== null || cellEdit.saving) {
+        return;
+      }
+      e.preventDefault();
+      void cellEdit.undoLast().then((outcome) => {
+        if (outcome && "error" in outcome && !outcome.ok) {
+          setUneditableMsg(`Undo failed: ${outcome.error}`);
+        }
+      });
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [cellEdit, editingCell, pendingEdit]);
 
   /**
    * Reset column filters whenever the query result changes.
@@ -339,6 +548,14 @@ export function ResultsTable({ result }: ResultsTableProps) {
     setColumnFilters([]);
     setSelectedCellKey(null);
     setSelectedCell(null);
+    // Cell-edit state belongs to a specific result set: a brand-new query
+    // makes the prior dirty highlights / undo frames meaningless because
+    // the row indices may now refer to entirely different rows. Reset
+    // alongside the other selection state.
+    setEditingCell(null);
+    setPendingEdit(null);
+    cellEdit.clearDirty();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result]);
 
   /**
@@ -745,6 +962,24 @@ export function ResultsTable({ result }: ResultsTableProps) {
                     const cellKey = `${row.id}__${colId}`;
                     const isSelected = selectedCellKey === cellKey;
 
+                    // ── Cell-edit hookup ─────────────────────────────────
+                    // We key edit state by the ORIGINAL (pre-sort) row index
+                    // because cellEdit.saveEdit operates on result.rows
+                    // directly — that array is in original order regardless
+                    // of TanStack's current sort. _index is captured at
+                    // table-data construction time and survives sort.
+                    const originalRowIdx = row.original._index;
+                    const isEditing =
+                      isDataCol &&
+                      editingCell !== null &&
+                      editingCell.rowIndex === originalRowIdx &&
+                      editingCell.colIndex === colIdx;
+                    const dirty = isDataCol
+                      ? cellEdit.dirtyCells.get(
+                          `${originalRowIdx}__${colIdx}`
+                        )
+                      : undefined;
+
                     const tdElement = (
                       <td
                         key={cell.id}
@@ -760,9 +995,16 @@ export function ResultsTable({ result }: ResultsTableProps) {
                           isSelected
                             ? "bg-[#1a2744] outline outline-1 outline-[#3b82f6]"
                             : "",
+                          // Amber background for cells whose successful edit
+                          // has not been overwritten by a fresh query yet.
+                          // This is the "dirty" indicator users learn to
+                          // associate with the cells they touched this session.
+                          dirty
+                            ? "bg-[#3a2c10] outline outline-1 outline-[#f59e0b]/60"
+                            : "",
                         ].join(" ")}
                         onClick={() => {
-                          if (isDataCol) {
+                          if (isDataCol && !isEditing) {
                             setSelectedCellKey(cellKey);
                             // Open the ValueViewer with this cell's raw value and
                             // column name. Replaces any previously selected cell.
@@ -773,8 +1015,76 @@ export function ResultsTable({ result }: ResultsTableProps) {
                             });
                           }
                         }}
+                        onDoubleClick={() => {
+                          // Editing only fires on data columns. The row-number
+                          // column is a derived value and has no UPDATE target.
+                          if (!isDataCol) return;
+                          // Already editing this cell → don't restart (would
+                          // wipe the in-progress input).
+                          if (isEditing) return;
+
+                          const availability = cellEdit.canEditColumn(colIdx);
+                          if (availability.kind !== "editable") {
+                            // Surface a friendly reason — this is the user's
+                            // only signal that nothing happened. Falls back
+                            // to a generic message if explainAvailability
+                            // returns null (the editable case, which
+                            // shouldn't be reachable here).
+                            setUneditableMsg(
+                              explainAvailability(availability) ??
+                                "Cannot edit this cell"
+                            );
+                            return;
+                          }
+                          // Enter edit mode. The CellEditor itself takes
+                          // a snapshot of the value via initialValue —
+                          // the row data may shift underneath if a parallel
+                          // undo runs, but the input's local state is
+                          // unaffected.
+                          setEditingCell({
+                            rowIndex: originalRowIdx,
+                            colIndex: colIdx,
+                          });
+                        }}
                       >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        {isEditing ? (
+                          <CellEditor
+                            initialValue={row.original._row[colIdx]}
+                            isNumeric={isNumeric}
+                            onCommit={(newValue) => {
+                              // Build the SQL preview synchronously and stash
+                              // it on pendingEdit. The dialog mounts on the
+                              // next render and the user gets to confirm.
+                              const preview = cellEdit.buildPreview(
+                                originalRowIdx,
+                                colIdx,
+                                newValue
+                              );
+                              if (!preview) {
+                                setUneditableMsg(
+                                  "Cannot edit: missing primary key"
+                                );
+                                setEditingCell(null);
+                                return;
+                              }
+                              setPendingEdit({
+                                rowIndex: originalRowIdx,
+                                colIndex: colIdx,
+                                newValue,
+                                ...preview,
+                              });
+                              // Leave editingCell set — it is cleared after
+                              // the dialog resolves so the input doesn't
+                              // disappear behind the modal mid-confirmation.
+                            }}
+                            onCancel={() => setEditingCell(null)}
+                          />
+                        ) : (
+                          flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )
+                        )}
                       </td>
                     );
 
@@ -838,6 +1148,76 @@ export function ResultsTable({ result }: ResultsTableProps) {
           value={selectedCell.value}
           columnName={selectedCell.columnName}
           onClose={handleCloseViewer}
+        />
+      )}
+
+      {/*
+        Uneditable refusal banner — appears in the same top-right slot as
+        the "Copied!" toast but with an amber tone to distinguish a denial
+        from a positive confirmation. Auto-clears after 2.5 s via the
+        useEffect on uneditableMsg above. pointer-events-none lets clicks
+        through to the grid behind it.
+      */}
+      {uneditableMsg && (
+        <div
+          className={[
+            "absolute top-2 right-3 z-50 px-3 py-1.5 rounded",
+            "bg-[#1a1407] border border-[#3d2c10] text-[#f59e0b]",
+            "text-xs font-mono pointer-events-none max-w-[60%]",
+            "animate-in fade-in-0 slide-in-from-top-1",
+          ].join(" ")}
+          role="status"
+          aria-live="polite"
+        >
+          {uneditableMsg}
+        </div>
+      )}
+
+      {/*
+        Cell-edit confirmation dialog — mounts whenever pendingEdit is set.
+        Shows the formatted SQL plus the table/row identity. Confirm fires
+        the PUT through cellEdit.saveEdit; on success the editing cell
+        clears and the dirty highlight appears via the dirtyCells map.
+        Cancel discards the pending edit and re-opens the inline editor so
+        the user can amend the value (better than discarding their typing).
+      */}
+      {pendingEdit !== null && (
+        <EditConfirmDialog
+          sql={pendingEdit.sql}
+          table={pendingEdit.table}
+          column={pendingEdit.column}
+          newValue={pendingEdit.newValue}
+          pk={pendingEdit.pk}
+          saving={cellEdit.saving}
+          onCancel={() => {
+            // Cancel returns the user to the inline editor pre-populated
+            // with their last value, so they don't lose typing on a
+            // double-take. clearing pendingEdit alone preserves
+            // editingCell.
+            setPendingEdit(null);
+          }}
+          onConfirm={() => {
+            void cellEdit
+              .saveEdit(
+                pendingEdit.rowIndex,
+                pendingEdit.colIndex,
+                pendingEdit.newValue
+              )
+              .then((outcome) => {
+                if (outcome.ok) {
+                  // Successful save → tear down both the dialog and the
+                  // inline editor; the dirty-cell map drives the amber
+                  // highlight on the next render.
+                  setPendingEdit(null);
+                  setEditingCell(null);
+                } else {
+                  // Failure → keep the dialog mounted so the user sees
+                  // the error and can retry without re-typing the value.
+                  setUneditableMsg(`Update failed: ${outcome.error}`);
+                  setPendingEdit(null);
+                }
+              });
+          }}
         />
       )}
     </div>

@@ -36,6 +36,22 @@ export interface QueryResult {
   rowCount: number;
   /** Wall-clock milliseconds from request send to first byte, measured server-side. */
   executionTime: number;
+  /**
+   * The SQL string that produced this result, captured client-side at execute
+   * time.
+   *
+   * WHY it lives on the result and not on the tab:
+   *   The cell-editing flow needs to know which table a row came from so it
+   *   can build the UPDATE WHERE clause. The user can keep typing in the
+   *   editor after pressing Run — `tab.sql` drifts away from "the SQL that
+   *   produced these rows". Pinning the executed SQL onto the result keeps
+   *   the editability check honest no matter how long ago the query ran.
+   *
+   * NOT sent by the server. Set by useQueryExecution after a successful
+   * single-statement run. Optional because legacy / multi-statement results
+   * may omit it.
+   */
+  executedSql?: string;
 
   // ── Multi-statement metadata (present only when the user submitted a batch) ─
 

@@ -21,6 +21,7 @@ import { createStatusRouter } from "./status.js";
 import { createSchemaRouter } from "./schema/index.js";
 import { createExplainRouter } from "./explain/index.js";
 import { createImportRouter } from "./import/index.js";
+import { createDataRouter } from "./data/index.js";
 
 /**
  * Mounts all API route handlers onto the Express app.
@@ -114,4 +115,20 @@ export function registerRoutes(
   // and permission semantic: it always issues INSERTs (never SELECT), so the
   // general validateQuery() logic is not useful for it.
   app.use("/api/import", createImportRouter(db, config.permissionMode));
+
+  // ── Inline cell editing ────────────────────────────────────────────────────
+  //
+  // PUT /api/data/:table accepts { column, value, pk } and runs a single-row
+  // UPDATE. Backs the double-click cell editing in the results grid. Lives
+  // outside the query route because the request shape is structured (column /
+  // value / pk object) rather than free-form SQL — the server builds the
+  // UPDATE from validated identifiers, so the client never has to assemble
+  // identifier-bearing SQL itself.
+  //
+  // Requires --write or --full mode; 403 in --readonly. The router needs the
+  // full ConnectionConfig so it can dispatch dialect-specific schema lookups
+  // (for whitelisting :table, the column, and pk columns) AND emit dialect-
+  // correct identifier-quoted SQL in the response body for the client's
+  // history panel.
+  app.use("/api/data", createDataRouter(config, db));
 }

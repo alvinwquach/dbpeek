@@ -260,6 +260,10 @@ export function useQueryExecution(): {
               rows: successData.rows,
               rowCount: successData.rowCount,
               executionTime: successData.executionTime,
+              // Pin the SQL we just ran onto the result so the cell-edit flow
+              // can decide editability without consulting the editor's live
+              // buffer (which the user may have changed since pressing Run).
+              executedSql: trimmed,
               ...(successData.statements
                 ? {
                     statements: successData.statements,

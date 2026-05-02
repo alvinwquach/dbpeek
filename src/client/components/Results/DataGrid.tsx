@@ -9,9 +9,21 @@
  * ARCHITECTURE:
  *   DataGrid        — state router: loading / error / empty / non-SELECT / table
  *   └─ ResultsTable — TanStack Table + Virtual grid (ResultsTable.tsx)
- *      ├─ ResultsHeader  — stats bar + export button (ResultsHeader.tsx)
- *      ├─ SortIndicator  — column sort arrows (SortIndicator.tsx)
- *      └─ ColumnResizeHandle — drag handle on header cells (ColumnResizeHandle.tsx)
+ *      ├─ ResultsHeader     — stats bar + export button (ResultsHeader.tsx)
+ *      ├─ SortIndicator     — column sort arrows (SortIndicator.tsx)
+ *      ├─ ColumnResizeHandle — drag handle on header cells (ColumnResizeHandle.tsx)
+ *      ├─ CellEditor        — inline <input> rendered on double-click (in-file)
+ *      └─ EditConfirmDialog — modal preview of the UPDATE before it fires
+ *
+ * INLINE CELL EDITING (delegated to ResultsTable):
+ *   Available only in --write or --full mode and only for simple
+ *   "SELECT <cols> FROM <one-table>" queries against a table with a primary
+ *   key (otherwise the WHERE clause is ambiguous). Double-click a cell →
+ *   edit → Enter/Tab opens a confirmation dialog showing the exact UPDATE
+ *   that will run; on confirm the change is committed via PUT
+ *   /api/data/:table, the cell is highlighted amber, and the SQL is logged
+ *   to query history. Cmd/Ctrl+Z replays the inverse UPDATE through the
+ *   same pipeline.
  *
  * WHY "h-full flex flex-col overflow-hidden" on the root:
  *   The parent panel in App.tsx gives this component flex-1 height. For virtual

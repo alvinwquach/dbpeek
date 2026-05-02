@@ -277,6 +277,32 @@ interface AppState {
   ) => void;
 
   /**
+   * Mutates a single cell inside a tab's currently displayed result.
+   *
+   * WHY this is a dedicated action rather than letting the cell-edit code
+   * spread its own copy of `tab.result`:
+   *   The result object is deeply nested (rows is unknown[][]) and shared
+   *   by reference with TanStack Table's memoised data. Mutating in place
+   *   would skip the memo invalidation and leave stale rows on screen.
+   *   Wrapping the change in a single set() guarantees:
+   *     1. A new rows array (so TanStack Table re-runs its row model).
+   *     2. A new outer result object (so memos keyed on `result` re-fire).
+   *     3. An atomic update — subscribers never see a half-applied state.
+   *
+   * No-op if the tab id doesn't exist, the tab has no result, or the row /
+   * column index is out of bounds. Out-of-bounds is silently ignored
+   * because the cell-edit code already validates the indices upstream;
+   * a defensive check here prevents a stray index from corrupting the
+   * row arrays without throwing in the user's face.
+   */
+  updateTabResultCell: (
+    id: string,
+    rowIndex: number,
+    colIndex: number,
+    newValue: unknown
+  ) => void;
+
+  /**
    * Removes a tab by id. If the active tab is removed, the tab immediately
    * to the left (or the new last tab) becomes active. Refuses to remove the
    * final tab — the editor always shows at least one tab.
@@ -431,6 +457,33 @@ export const useAppStore = create<AppState>()((set) => ({
             }
           : t
       ),
+    })),
+
+  // Replace ONE cell value inside a tab's current result.
+  //
+  // WHY a deep clone of just the affected row (not the whole rows array):
+  //   The cell-edit feature targets exactly one cell at a time. Cloning the
+  //   one mutated row keeps the unchanged rows referentially equal across
+  //   updates so React/TanStack memos keyed on individual rows can skip
+  //   work. The rows array itself MUST be a new reference so the memo on
+  //   `result.rows` (TanStack Table's data input) invalidates.
+  updateTabResultCell: (id, rowIndex, colIndex, newValue) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => {
+        if (t.id !== id) return t;
+        const result = t.result;
+        if (!result) return t;
+        if (rowIndex < 0 || rowIndex >= result.rows.length) return t;
+        const targetRow = result.rows[rowIndex];
+        if (!targetRow || colIndex < 0 || colIndex >= targetRow.length) {
+          return t;
+        }
+        const newRow = targetRow.slice();
+        newRow[colIndex] = newValue;
+        const newRows = result.rows.slice();
+        newRows[rowIndex] = newRow;
+        return { ...t, result: { ...result, rows: newRows } };
+      }),
     })),
 
   removeTab: (id) =>
