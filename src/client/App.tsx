@@ -60,6 +60,8 @@ import { useAppStore } from "./stores/app";
 import { formatSql } from "./utils/formatSql";
 import { parseSqlParams } from "./components/Editor/SqlEditor";
 import { SessionReport } from "./components/SessionReport";
+import { SchemaDiff } from "./components/Diff/SchemaDiff";
+import { DataDiff } from "./components/Diff/DataDiff";
 
 // ===== LAYOUT CONSTANTS =====
 
@@ -129,6 +131,20 @@ export default function App() {
   // Cmd+D (or Ctrl+D) opens a modal summarising the current session before the
   // user closes the terminal or the browser tab.
   const [sessionReportOpen, setSessionReportOpen] = useState(false);
+
+  // ── Diff modal ───────────────────────────────────────────────────────────
+  // diffMode === null            → no modal open
+  // diffMode === "schema"        → SchemaDiff is mounted
+  // diffMode === "data"          → DataDiff is mounted
+  //
+  // The two diff components are siblings (NOT nested), so each one owns its
+  // own escape / scroll-lock / focus lifecycle. Switching modes works by
+  // unmounting one and mounting the other in a single set() call below.
+  //
+  // WHY a tri-state local useState (vs. zustand): the diff modal state has
+  // no cross-component readers — only App.tsx mounts the components. Local
+  // useState avoids a store action for what is purely view state.
+  const [diffMode, setDiffMode] = useState<"schema" | "data" | null>(null);
 
   // ── Panel resize state ───────────────────────────────────────────────────────
   const [editorHeightPct, setEditorHeightPct] = useState(0.4);
@@ -396,6 +412,21 @@ export default function App() {
                 </button>
 
                 {/*
+                  Diff button — opens the side-by-side comparison modal.
+                  Defaults to Data Diff (the more frequent use case from the
+                  spec: comparing query results across tabs). The user can
+                  flip to Schema Diff via the segmented control inside the
+                  modal header without re-opening from the toolbar.
+                */}
+                <button
+                  onClick={() => setDiffMode("data")}
+                  className="flex items-center gap-1.5 px-2.5 h-5 text-[9px] font-semibold uppercase tracking-wider rounded bg-[var(--bg-tertiary)] hover:bg-[var(--border-light)] active:bg-[var(--border-color)] text-[var(--text-secondary)] border border-[var(--border-light)] transition-colors duration-100 select-none"
+                  title="Compare two tabs (data or schema)"
+                >
+                  Diff
+                </button>
+
+                {/*
                   Run / Cancel button — toggles between run and cancel modes.
                   While loading: red Cancel button that kills the in-flight query.
                   While idle:    blue Run button that fires the query.
@@ -584,6 +615,32 @@ export default function App() {
         erdOpen via toggleErd; ErdView's onClose does the same.
       */}
       {erdOpen && <ErdView onClose={toggleErd} />}
+
+      {/* ===== DIFF MODAL ===== */}
+      {/*
+        Conditionally render exactly one of the two diff modals based on
+        diffMode. The two components are siblings — switching modes via the
+        segmented control inside either modal unmounts one and mounts the
+        other, which resets per-modal state (picks, scroll position) by
+        design. If we wanted state to survive a mode switch we'd hoist the
+        picks into Zustand, but a clean re-mount is the right default for
+        a "different view of the same comparison" workflow.
+
+        onClose: nulls diffMode → unmounts whichever modal is open.
+        onSwitchMode: flips diffMode to the other value → swaps the modals.
+      */}
+      {diffMode === "schema" && (
+        <SchemaDiff
+          onClose={() => setDiffMode(null)}
+          onSwitchMode={(mode) => setDiffMode(mode)}
+        />
+      )}
+      {diffMode === "data" && (
+        <DataDiff
+          onClose={() => setDiffMode(null)}
+          onSwitchMode={(mode) => setDiffMode(mode)}
+        />
+      )}
 
     </div>
   );
