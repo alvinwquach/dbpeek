@@ -190,6 +190,51 @@ export function StarFilledIcon() {
   );
 }
 
+// ===== IMPORT =====
+
+/**
+ * Upload-arrow icon used for the "Import CSV/JSON" action on a table row.
+ * An upward arrow entering a tray is the universal "upload / import" metaphor
+ * in developer tooling (VS Code's import, DBeaver's data-import button, etc.).
+ * Rendered at 12×12 px to match every other icon in this file.
+ */
+export function ImportIcon() {
+  return (
+    <svg
+      className="w-3 h-3 shrink-0"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* Tray / inbox line at the bottom — the "destination" visual */}
+      <path
+        d="M1.5 8.5h9v2a.5.5 0 01-.5.5H2a.5.5 0 01-.5-.5v-2z"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+      {/* Upward arrow shaft */}
+      <line
+        x1="6"
+        y1="1.5"
+        x2="6"
+        y2="7.5"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+      />
+      {/* Arrow head */}
+      <path
+        d="M3.5 4L6 1.5L8.5 4"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // ===== ERD =====
 
 /**
