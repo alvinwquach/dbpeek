@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    // Target modern browsers — no IE11 polyfills needed
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    // Vite handles bundling; bundler resolution allows .ts/.tsx imports
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    // No emit — Vite owns that
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    // Strict mode catches most footguns at authoring time
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

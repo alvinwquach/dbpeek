@@ -1,0 +1,36 @@
+# dbpeek
+
+Privacy-first SQL client. One npx command, nothing stored.
+
+## What it is
+A local-only database explorer. Running `npx dbpeek "postgres://..."`
+opens your browser to a SQL editor with schema-aware autocomplete,
+EXPLAIN plan visualization, ERD diagrams, inline cell editing, and
+query history. Database credentials exist only in server process
+memory and are freed when the process exits — nothing is written to
+disk, and nothing is transmitted off the local machine.
+
+## Supported databases
+PostgreSQL, MySQL, SQLite, MSSQL.
+
+## How to install
+dbpeek requires no installation. Run it directly with npx, pnpm dlx,
+or bunx:
+
+```
+npx dbpeek "postgres://user:pass@localhost:5432/mydb"
+```
+
+Node.js 18 or higher is required.
+
+## License
+MIT. Free and open source forever.
+
+## Links
+- Homepage: https://dbpeek.com
+- GitHub: https://github.com/alvinwquach/dbpeek
+- npm: https://www.npmjs.com/package/dbpeek
+- Issues: https://github.com/alvinwquach/dbpeek/issues
+
+## Author
+Alvin Quach — https://alvinquach.dev
