@@ -1,7 +1,7 @@
 {
   "name": "dbpeek",
-  "version": "0.1.0",
-  "description": "Connect to any database and explore it in your browser. One command, nothing to install.",
+  "version": "1.0.0",
+  "description": "Privacy-first SQL client. One npx command, nothing stored. Supports PostgreSQL, MySQL, SQLite, and MSSQL.",
   "type": "module",
   "license": "MIT",
   "author": "Alvin Quach",
@@ -10,24 +10,27 @@
     "url": "https://github.com/alvinwquach/dbpeek"
   },
   "bin": {
-    "dbpeek": "dist/cli/index.js"
+    "dbpeek": "dist/cli/index.cjs"
   },
-  "main": "dist/server/index.js",
-  "types": "dist/server/index.d.ts",
+  "main": "dist/server/index.cjs",
+  "types": "dist/server/index.d.cts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
     "build:client": "vite build",
     "build:all": "npm run build && npm run build:client",
+    "prepack": "npm run build:all",
+    "prepublishOnly": "npm run build:all",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
@@ -82,6 +85,28 @@
     "vite": "^5.3.4",
     "vitest": "^2.0.3"
   },
+  "keywords": [
+    "sql",
+    "database",
+    "postgres",
+    "postgresql",
+    "mysql",
+    "sqlite",
+    "mssql",
+    "cli",
+    "explorer",
+    "client",
+    "gui",
+    "browser",
+    "dbeaver-alternative",
+    "tableplus-alternative",
+    "datagrip-alternative",
+    "pgadmin-alternative",
+    "privacy",
+    "local-first",
+    "zero-install",
+    "npx"
+  ],
   "engines": {
     "node": ">=18.0.0"
   }
