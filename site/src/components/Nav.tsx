@@ -6,6 +6,7 @@ const NAV_LINKS = [
   { label: 'Scope',    href: '#scope'    },
   { label: 'Compare',  href: '#compare'  },
   { label: 'FAQ',      href: '#faq'      },
+  { label: 'Docs',     href: '/docs'     },
 ]
 
 export function Nav() {
