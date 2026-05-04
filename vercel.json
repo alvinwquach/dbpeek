@@ -1,7 +1,7 @@
 {
   "buildCommand": "pnpm build:web",
   "outputDirectory": "dist",
-  "installCommand": "echo 'install handled by build:web'",
+  "installCommand": "echo 'skipped'",
   "framework": null,
   "rewrites": [
     {
