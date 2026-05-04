@@ -1,0 +1,16 @@
+{
+  "buildCommand": "pnpm build:web",
+  "outputDirectory": "dist",
+  "installCommand": "pnpm install",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/docs/:path((?!.*\\.).*)",
+      "destination": "/docs/index.html"
+    },
+    {
+      "source": "/:path((?!docs|.*\\.).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
