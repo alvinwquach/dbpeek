@@ -1,0 +1,322 @@
+/**
+ * docs/src/index.css — Global styles and Tailwind v4 theme for dbpeek docs.
+ *
+ * Tailwind v4 works via the @tailwindcss/vite plugin — no tailwind.config.ts.
+ * All design tokens are declared in the @theme block below and become available
+ * as Tailwind utility classes (e.g. bg-page, text-secondary, border-border).
+ *
+ * The color palette exactly matches the main dbpeek app and the marketing site
+ * so the docs feel like a seamless part of the same product.
+ */
+@import "tailwindcss";
+
+/* Enable class-based dark mode: dark: variants activate when .dark is on an ancestor */
+@variant dark (&:where(.dark *));
+
+@theme {
+  /**
+   * Background layers (darkest to slightly lighter):
+   *   page      — outermost background, page body
+   *   surface   — cards, sidebar, panels
+   *   surface-2 — code blocks, inset content, nested panels
+   */
+  --color-page:      #0a0a0f;
+  --color-surface:   #111118;
+  --color-surface-2: #0d0d14;
+
+  /** Dividers and borders throughout the UI */
+  --color-border:    #1e1e2e;
+
+  /**
+   * Text hierarchy:
+   *   text      — primary readable content
+   *   secondary — metadata, labels, captions
+   *   muted     — placeholder text, disabled states, fine print
+   */
+  --color-text:      #ededf0;
+  --color-secondary: #8a8a9a;
+  --color-muted:     #555566;
+
+  /**
+   * Semantic colors:
+   *   accent — interactive elements, links, active states
+   *   ok     — success banners, positive indicators
+   *   warn   — warning callouts, deprecation notices
+   *   bad    — error states, danger callouts
+   */
+  --color-accent:    #4a8af4;
+  --color-ok:        #2dd4a0;
+  --color-warn:      #ebab40;
+  --color-bad:       #e84c4c;
+
+  /**
+   * Typography:
+   *   sans — system-ui avoids a web font download for prose, reducing LCP.
+   *   mono — JetBrains Mono for code blocks (loaded via Google Fonts in HTML).
+   */
+  --font-sans: system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+/* ─── Box model reset ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Prevent horizontal overflow from breaking layout on narrow viewports */
+html { overflow-x: hidden; }
+
+/* ─── Base body — light-mode default ───────────────────────────────────────── */
+body {
+  background-color: #ffffff;
+  color: #0a0a0f;
+  font-family: var(--font-sans);
+  /**
+   * Font smoothing: antialiased gives lighter, crisper text on Mac retina
+   * displays. Without it, text looks heavy and blurry on dark backgrounds.
+   */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Dark mode body */
+html.dark body {
+  background-color: #0a0a0f;
+  color: #ededf0;
+}
+
+/* Ensure monospace elements pick up the JetBrains Mono font */
+code, pre, .font-mono { font-family: var(--font-mono); }
+
+/* ─── Scrollbar styling ─────────────────────────────────────────────────────── */
+/* Light mode */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #ffffff; }
+::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+* { scrollbar-width: thin; scrollbar-color: #d4d4d8 #ffffff; }
+
+/* Dark mode scrollbars */
+html.dark ::-webkit-scrollbar-track { background: #0a0a0f; }
+html.dark ::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 3px; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #2a2a3e; }
+html.dark * { scrollbar-color: #1e1e2e #0a0a0f; }
+
+/* ─── Sidebar / TOC scroll containers ───────────────────────────────────────── */
+/**
+ * Nearly invisible at rest, subtle on hover — matches Stripe Docs behavior.
+ */
+.sidebar-scroll { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; transition: background 150ms; }
+
+/* Light mode hover */
+.sidebar-scroll:hover::-webkit-scrollbar-thumb { background: #d4d4d8; }
+.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+
+/* Dark mode hover */
+html.dark .sidebar-scroll:hover::-webkit-scrollbar-thumb { background: #1e1e2e; }
+html.dark .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #2a2a3e; }
+
+/* ─── Text selection ─────────────────────────────────────────────────────────── */
+/**
+ * Branded selection color: accent at 25% opacity.
+ */
+::selection { background: #4a8af440; color: #0a0a0f; }
+html.dark ::selection { background: #4a8af440; color: #ededf0; }
+
+/* ─── Reduced motion ─────────────────────────────────────────────────────────── */
+/**
+ * Honor the OS-level "reduce motion" setting.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Shiki code block theming ───────────────────────────────────────────────── */
+/**
+ * Shiki renders to <pre class="shiki"><code>...</code></pre>.
+ * Light mode uses github-light colors; dark mode switches via CSS vars.
+ */
+.shiki {
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  padding: 1rem 0;
+  margin: 1.5rem 0;
+}
+
+/* Light mode shiki */
+.shiki {
+  background: #fafafa !important;
+  border: 1px solid #e4e4e7;
+}
+
+/* Dark mode shiki — override background and switch token colors */
+html.dark .shiki {
+  background: #0d0d14 !important;
+  border-color: #1e1e2e;
+}
+
+html.dark .shiki,
+html.dark .shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
+}
+
+.shiki code {
+  counter-reset: step;
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+.shiki code .line {
+  display: block;
+  padding: 0 1rem;
+}
+
+/* ─── Prose content typography ───────────────────────────────────────────────── */
+/**
+ * .prose-doc scopes all typography rules to the MDX content area.
+ * Light-mode defaults; html.dark overrides below each rule group.
+ */
+.prose-doc h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #0a0a0f;
+  margin-bottom: 0.5rem;
+  line-height: 1.2;
+}
+
+html.dark .prose-doc h1 { color: #ededf0; }
+
+.prose-doc h2 {
+  font-size: 1.375rem;
+  font-weight: 600;
+  color: #0a0a0f;
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e4e4e7;
+  line-height: 1.3;
+}
+
+html.dark .prose-doc h2 { color: #ededf0; border-bottom-color: #1e1e2e; }
+
+.prose-doc h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #0a0a0f;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+html.dark .prose-doc h3 { color: #ededf0; }
+
+.prose-doc p {
+  color: #525252;
+  line-height: 1.75;
+  margin-bottom: 1rem;
+}
+
+html.dark .prose-doc p { color: #8a8a9a; }
+
+.prose-doc a {
+  color: #4a8af4;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.prose-doc a:hover { color: #6ba3f7; }
+
+.prose-doc ul, .prose-doc ol {
+  color: #525252;
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+html.dark .prose-doc ul,
+html.dark .prose-doc ol { color: #8a8a9a; }
+
+.prose-doc li { margin-bottom: 0.25rem; line-height: 1.7; }
+
+.prose-doc ul li { list-style-type: disc; }
+.prose-doc ol li { list-style-type: decimal; }
+
+.prose-doc code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: #f4f4f5;
+  color: #4a8af4;
+  padding: 0.15em 0.4em;
+  border-radius: 0.25rem;
+  border: 1px solid #e4e4e7;
+}
+
+html.dark .prose-doc code { background: #111118; border-color: #1e1e2e; }
+
+/* Don't double-style code inside <pre> blocks (Shiki handles those) */
+.prose-doc pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.prose-doc blockquote {
+  border-left: 3px solid #e4e4e7;
+  padding-left: 1rem;
+  color: #525252;
+  margin: 1.5rem 0;
+  font-style: italic;
+}
+
+html.dark .prose-doc blockquote { border-left-color: #1e1e2e; color: #555566; }
+
+.prose-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  font-size: 0.875rem;
+}
+
+.prose-doc th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  background: #f4f4f5;
+  color: #0a0a0f;
+  font-weight: 600;
+  border: 1px solid #e4e4e7;
+}
+
+html.dark .prose-doc th { background: #111118; color: #ededf0; border-color: #1e1e2e; }
+
+.prose-doc td {
+  padding: 0.5rem 0.75rem;
+  color: #525252;
+  border: 1px solid #e4e4e7;
+}
+
+html.dark .prose-doc td { color: #8a8a9a; border-color: #1e1e2e; }
+
+.prose-doc tr:nth-child(even) td { background: #fafafa; }
+html.dark .prose-doc tr:nth-child(even) td { background: #0d0d14; }
+
+/* Heading anchor links generated by rehype-autolink-headings */
+.prose-doc h2 a,
+.prose-doc h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.prose-doc h2 a:hover,
+.prose-doc h3 a:hover { color: #4a8af4; }

@@ -1,0 +1,67 @@
+---
+title: "Results grid"
+description: "TanStack Table v8 results grid with virtualized rendering, type-aware cell display, column resizing, and row selection."
+category: "Results"
+---
+
+# Results grid
+
+Query results are rendered in a TanStack Table (v8) grid with full row virtualization via `@tanstack/react-virtual`. Only rows in the current viewport are in the DOM — scrolling a million-row result set at 60fps is normal.
+
+![Results grid showing a multi-column query result](/docs/screenshots/results-grid.png)
+
+## Performance
+
+The virtual scroller renders approximately 30 rows at a time (enough to fill the viewport plus a small buffer above and below). As you scroll, rows are mounted and unmounted dynamically. Row height is fixed at 32px for consistent scroll behavior.
+
+For most queries (< 100K rows), the grid feels instant. For very large result sets, the initial render takes a moment while TanStack Table processes the row models in JavaScript.
+
+## Column widths
+
+On first render, each column measures the width of its header text and a sample of cell values, then sets an initial width. After that, you can resize columns by dragging the divider between column headers. Resize state is per-tab and resets when a new query is run.
+
+## Type-aware cell rendering
+
+Cells are rendered differently based on their detected type:
+
+| Type | Display |
+|------|---------|
+| **Numeric** | Right-aligned, amber color (`#ebab40`) |
+| **NULL** | Italic `null` text in muted color (`#555566`) |
+| **Boolean** | `true` in green, `false` in red |
+| **JSON / object** | Collapsed preview (e.g., `{3 keys}`), click to expand in value viewer |
+| **Long text** | Truncated with ellipsis, click to open full value in value viewer |
+| **Date/timestamp** | Formatted locale date string, hover shows raw value |
+
+Type detection uses the column's declared database type (from the query result metadata), not string heuristics.
+
+## Header row
+
+The header row sticks to the top while scrolling. Each header cell contains:
+
+- Column name
+- Sort indicator (arrow icon, shows current sort direction)
+- Filter icon (click to toggle the column filter input)
+- Resize handle (right edge of the cell)
+
+## Row appearance
+
+- No background-color alternation — rows are distinguished by a 1px border
+- Selected rows receive a highlight background color
+- Hovered rows receive a subtle background tint
+
+## Row selection
+
+- **Click a row** — selects it (the row is highlighted)
+- **<Kbd>⌘</Kbd><Kbd>A</Kbd>** — selects all rows
+- **Click another row** — moves selection; does not multi-select (Shift+click for range selection)
+
+Selected rows are used by the [copy row](/results/copy-cell) commands in the right-click context menu.
+
+## Fixed header and scrolling
+
+The header row is sticky and does not scroll with the data. Horizontal scrolling (for wide result sets) scrolls both the header row and data rows together, keeping columns aligned.
+
+## Row count
+
+The total row count is always shown below the results grid. When client-side filters are active, it shows: `23 of 1,204 rows`.

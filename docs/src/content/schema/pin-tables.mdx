@@ -1,0 +1,50 @@
+---
+title: "Pin tables"
+description: "Pin frequently used tables to the top of the dbpeek schema explorer so they're always accessible in large databases."
+category: "Schema browsing"
+---
+
+# Pin tables
+
+In databases with many tables, scrolling through the full list to find the five you care about is slow. Pinning moves your most-used tables to a dedicated **Pinned** section at the very top of the schema explorer, above all other tables.
+
+## How to pin a table
+
+Right-click any table in the schema explorer → **Pin to top**.
+
+The table immediately appears in the **Pinned** section at the top of the sidebar. It also stays in its original position in the **All tables** section below.
+
+![Schema sidebar with a Pinned section showing two tables](/docs/screenshots/pinned-tables.png)
+
+## How to unpin a table
+
+Right-click the table (in either the Pinned section or All tables) → **Unpin**.
+
+The Pinned section disappears from the sidebar when there are no pinned tables.
+
+## Pinned section behavior
+
+The pinned section works identically to the main table list:
+
+- Click a table name to preview its first 100 rows
+- Expand the table to see columns with type and constraint badges
+- Right-click to access the full context menu (Show DDL, Copy table name, etc.)
+- The same row count estimate is shown
+
+## Pinning multiple tables
+
+There is no limit on the number of pinned tables. Pin as many as needed. The pinned section scrolls independently if the list is long.
+
+## Session scope
+
+Pins are stored in Zustand (in-memory state). They are **not** persisted to disk, localStorage, or any config file.
+
+Closing the terminal or browser window clears all pins. The next session starts with an empty pinned section.
+
+<PrivacyCallout>
+No information about which tables you pinned is written to disk or sent anywhere. Like all dbpeek state, pins exist only in the browser's JavaScript memory for the current session.
+</PrivacyCallout>
+
+## Use case: large multi-tenant schema
+
+In a database with 200+ tables across multiple services, pinning the 4–5 tables relevant to your current task keeps them instantly accessible without scrolling or searching. Combined with the sidebar search, you can find any table quickly even in very large schemas.

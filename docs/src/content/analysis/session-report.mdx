@@ -1,0 +1,43 @@
+---
+title: "Session report"
+description: "A privacy audit and usage summary shown when you disconnect from the database."
+category: "Query analysis"
+---
+
+# Session report
+
+The session report gives you a summary of everything that happened during the current session, along with a verifiable privacy audit confirming that no data left your machine.
+
+## Opening the report
+
+Press <KeyboardShortcut keys={['⌘', 'D']} /> or close the terminal tab. The report appears immediately — there is no server call to generate it because all data is already in the client.
+
+## Usage statistics
+
+The top section shows a high-level summary of the session:
+
+| Stat | Example |
+|------|---------|
+| Total queries run | 47 queries |
+| Total rows returned | 128,450 rows |
+| Total wall-clock time | 3m 42s |
+| Longest query | Shows the SQL and its duration |
+
+The longest query entry is clickable — clicking it loads that SQL into a new editor tab so you can investigate or re-run it.
+
+## Privacy verification
+
+The centerpiece of the session report is the privacy audit. Every item in this section is calculated from client-side instrumentation — dbpeek counts bytes sent, files opened, and outbound connections while it runs.
+
+- **0 bytes transmitted off localhost** — all traffic stayed on 127.0.0.1. Verified by monitoring the fetch calls made during the session.
+- **0 files written to disk** — credentials and query results exist in RAM only. The Express server opens no file descriptors for writing during normal operation.
+- **0 credentials persisted** — the connection string is cleared from the Knex pool configuration when the pool is destroyed on disconnect.
+- **0 telemetry events sent** — no analytics, no usage tracking, no crash reports. There are no outbound fetch calls in the codebase other than to the local Express API.
+
+<PrivacyCallout>These numbers are derived from instrumentation built into the client, not a claim you have to take on faith. See the Architecture page for how to independently verify them using `lsof` and `netstat`.</PrivacyCallout>
+
+## Actions available from the report
+
+**Reconnect** — Starts a fresh session. The current Knex pool is destroyed, the in-memory query history is cleared, and dbpeek prompts for a new connection string. Your previous session's data is gone from memory at this point.
+
+**Export session log** — Downloads the full in-memory query history as a JSON file to your local machine. The download is a standard browser download — the file goes wherever your browser saves downloads. This is the only time dbpeek ever writes data to disk, and it only happens if you explicitly click this button.

@@ -1,0 +1,61 @@
+---
+title: "Inline cell editing"
+description: "Edit individual cells directly in the results grid with a generated, confirmable UPDATE statement."
+category: "Data modification"
+---
+
+# Inline cell editing
+
+<ScopeBadge mode="write" />
+
+Inline editing lets you update a single database value without writing SQL. Double-click a cell, type the new value, confirm — done.
+
+## Editing a cell
+
+1. Run a SELECT query that returns the table you want to edit.
+2. **Double-click** any cell in the results grid. The cell switches to an input field with the current value pre-filled and selected.
+3. Type the new value.
+4. Press **Enter** or **Tab** to commit, or **Escape** to cancel without changes.
+
+After you commit the new value, dbpeek generates an UPDATE statement and shows a confirmation dialog:
+
+```sql
+UPDATE users
+SET email = 'new@example.com'
+WHERE id = 42;
+```
+
+Click **Execute** to apply the change to the database, or **Cancel** to discard it. The change is not written until you click Execute.
+
+## Undoing a change
+
+Press <KeyboardShortcut keys={['⌘', 'Z']} /> within the same session to revert the last inline edit. dbpeek generates a reverse UPDATE using the original value:
+
+```sql
+UPDATE users
+SET email = 'old@example.com'
+WHERE id = 42;
+```
+
+The same confirmation dialog appears. Undo is available for the current session only — there is no persistent undo history across sessions.
+
+## WHERE clause safety
+
+The generated WHERE clause **always uses the primary key** of the row, never arbitrary column values. This prevents accidental mass updates. For example, if a table has a composite primary key of `(order_id, line_item_id)`, the WHERE clause will include both columns.
+
+## Limitations
+
+| Limitation | Reason |
+|------------|--------|
+| Tables without a primary key | dbpeek cannot safely construct a single-row WHERE clause |
+| Binary / BLOB columns | No sensible text representation for editing |
+| Columns from JOIN results | The source table is ambiguous; dbpeek cannot determine which table to UPDATE |
+| Computed columns / views | The column has no direct storage location |
+
+If a cell is not editable due to one of these limitations, double-clicking it does nothing. Hovering shows a tooltip explaining why editing is unavailable.
+
+## Tips
+
+- Use Tab to move between cells while staying in edit mode — this speeds up entering data across multiple columns in the same row.
+- The confirmation dialog shows the exact SQL. Review it before clicking Execute, especially when editing columns that other tables reference via foreign keys.
+- For bulk updates, write a SQL UPDATE statement directly in the editor — inline editing is intended for individual cell corrections.

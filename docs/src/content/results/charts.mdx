@@ -1,0 +1,83 @@
+---
+title: "Chart visualization"
+description: "Visualize query results as bar charts, line charts, or scatter plots in dbpeek — auto-detected from column types, built with Recharts."
+category: "Results"
+---
+
+# Chart visualization
+
+Click the **Chart** icon in the results view toggle (next to the grid icon) to switch from the data grid to a chart view of the same result set. No additional query is run — the chart uses the data already fetched.
+
+![Bar chart showing order counts by status](/docs/screenshots/chart-bar.png)
+
+## Auto-detection logic
+
+dbpeek inspects the column types in your result set and picks a chart type automatically:
+
+| Column pattern | Chart type |
+|----------------|------------|
+| 1 text/category column + 1 numeric column | **Bar chart** — text on X axis, number on Y |
+| 1 date/timestamp column + 1+ numeric columns | **Line chart** — time series, one line per numeric column |
+| 2 numeric columns | **Scatter plot** — first column on X, second on Y |
+| Any other combination | **Bar chart** — first column on X, second column on Y |
+
+### Example queries and their chart types
+
+```sql
+-- Bar chart: category text + numeric
+SELECT status, COUNT(*) AS orders
+FROM orders
+GROUP BY status;
+```
+
+```sql
+-- Line chart: date + numeric
+SELECT DATE_TRUNC('day', created_at) AS day, SUM(total_cents) AS revenue
+FROM orders
+GROUP BY 1
+ORDER BY 1;
+```
+
+```sql
+-- Scatter plot: two numerics
+SELECT price_cents, weight_grams
+FROM products
+WHERE category = 'electronics';
+```
+
+## Manual axis override
+
+If the auto-detection picks the wrong chart, use the **X-axis** and **Y-axis** pickers in the chart toolbar to choose any columns from the result set. The chart re-renders immediately.
+
+For line charts with multiple numeric columns (multiple series), use the **Series** picker to add or remove series.
+
+## Chart library
+
+Charts are built with [Recharts](https://recharts.org), a React-native charting library. Features:
+
+- **Hover tooltips** — hover over any data point to see the exact X and Y values
+- **Legend** — shown when there are multiple series (multiple lines on a line chart)
+- **Responsive sizing** — the chart fills its container and redraws on window resize
+- **Animated entry** — bars and lines animate in on first render (can be disabled in settings)
+
+## Limitations
+
+**Maximum 10,000 data points** — If the result set has more than 10,000 rows, the chart renders a downsampled version using reservoir sampling. A warning is shown: `Showing 10,000 of 48,203 rows`. The full data is still available in the grid view.
+
+**No server-side aggregation** — Charts use the result set as-is. For large time-series datasets, pre-aggregate in SQL for best results:
+
+```sql
+-- Instead of fetching all rows and letting the chart group them:
+SELECT
+  DATE_TRUNC('day', created_at) AS day,
+  COUNT(*) AS orders,
+  SUM(total_cents) / 100.0 AS revenue
+FROM orders
+WHERE created_at >= NOW() - INTERVAL '90 days'
+GROUP BY 1
+ORDER BY 1;
+```
+
+This fetches 90 rows instead of potentially millions, and the chart renders instantly.
+
+**No chart configuration persistence** — Chart type and axis selections reset when you run a new query or switch tabs.

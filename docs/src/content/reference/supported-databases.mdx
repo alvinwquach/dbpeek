@@ -1,0 +1,66 @@
+---
+title: "Supported databases"
+description: "Supported SQL dialects, minimum versions, drivers, and tested hosting platforms."
+category: "Reference"
+---
+
+# Supported databases
+
+dbpeek supports four SQL dialects. Each dialect uses a battle-tested Node.js driver under the hood; dbpeek does not implement its own wire protocol.
+
+## Supported dialects
+
+| Dialect | Min Version | Driver | Default Port | Notes |
+|---------|-------------|--------|--------------|-------|
+| PostgreSQL | 12+ | pg (node-postgres) | 5432 | pgvector extension supported |
+| MySQL | 5.7+ | mysql2 | 3306 | MariaDB 10.3+ compatible |
+| SQLite | 3.x | better-sqlite3 | *(file path)* | `:memory:` databases supported |
+| MSSQL | SQL Server 2017+ | tedious | 1433 | Azure SQL Database supported |
+
+### PostgreSQL notes
+
+- PostgreSQL 12 is the minimum because EXPLAIN format improvements in 12 are required for the plan visualizer.
+- pgvector columns (`vector` type) display as arrays in the results grid.
+- `LISTEN` / `NOTIFY` is not supported — dbpeek uses HTTP polling, not persistent connections.
+
+### MySQL notes
+
+- MySQL 5.7 is supported for basic usage. EXPLAIN ANALYZE (visual plans) requires MySQL 8.0.18+.
+- MariaDB 10.3+ is compatible for most features. Some EXPLAIN output differences may affect the plan visualizer.
+- PlanetScale is compatible via its MySQL-compatible API (see hosted platforms below).
+
+### SQLite notes
+
+- Connects to a file path: `sqlite:///absolute/path/to/file.db`
+- In-memory databases (`sqlite://:memory:`) are supported and useful for testing.
+- The native `better-sqlite3` addon requires a C++ build toolchain. See [Troubleshooting](/reference/troubleshooting) if you get a build error.
+
+### MSSQL notes
+
+- SQL Server 2017+ is required. Azure SQL Database is fully supported.
+- Windows Authentication (Kerberos/SSPI) is not currently supported — use SQL Server authentication.
+- The connection string uses the `mssql://` scheme regardless of whether the server is on-premises or Azure.
+
+## Tested hosting platforms
+
+| Platform | Dialect | Notes |
+|----------|---------|-------|
+| Supabase | PostgreSQL | Add `?sslmode=require` to the connection string |
+| Neon | PostgreSQL | Add `?sslmode=require`; serverless cold starts may add ~500ms |
+| PlanetScale | MySQL | MySQL-compatible API; use standard MySQL connection string |
+| Railway | PostgreSQL / MySQL | Copy the connection string from the Railway dashboard |
+| AWS RDS | PostgreSQL / MySQL / MSSQL | Standard connection strings; ensure security group allows your IP |
+| Azure SQL | MSSQL | Standard MSSQL connection string; use SQL auth |
+| Fly.io | PostgreSQL | Works with Fly Postgres or an attached Supabase instance |
+| Render | PostgreSQL / MySQL | Standard connection strings from the Render dashboard |
+
+## Not supported
+
+dbpeek is explicitly SQL-only. The following databases are not supported and are not planned:
+
+- **MongoDB** — document model, no SQL
+- **Redis** — key-value store, no SQL
+- **Cassandra** — CQL is SQL-like but not compatible with the SQL permission model dbpeek enforces
+- **DynamoDB** — proprietary API, no SQL
+
+See the [FAQ](/reference/faq) for more context on this decision.

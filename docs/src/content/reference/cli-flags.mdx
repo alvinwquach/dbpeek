@@ -1,0 +1,76 @@
+---
+title: "CLI flags"
+description: "Complete reference for all dbpeek command-line flags and options."
+category: "Reference"
+---
+
+# CLI flags
+
+All flags are optional except for the connection URL, which is required as the first positional argument.
+
+## Flag reference
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| connection URL | *(positional)* | required | Connection string: `postgres://`, `mysql://`, `sqlite://`, or `mssql://` |
+| `--write` | `-w` | `false` | Enable INSERT, UPDATE, DELETE, REPLACE, and MERGE statements |
+| `--full` | `-f` | `false` | Enable everything in `--write` plus CREATE, DROP, ALTER, TRUNCATE, and GRANT |
+| `--port` | `-p` | auto | Start the local server on a specific port (1024–65535). Without this flag, dbpeek tries ports 3000–3999 and uses the first available one. |
+| `--no-open` | | `false` | Suppress the automatic browser launch. dbpeek prints the URL to stdout instead. |
+| `--version` | `-v` | | Print the installed dbpeek version and exit immediately. |
+| `--help` | `-h` | | Print usage information and exit immediately. |
+
+## Permission flag behavior
+
+`--write` and `--full` are additive, not independent. `--full` includes everything `--write` includes. You don't need to pass both flags.
+
+The permission level is enforced server-side in `permissions.ts` for every query — it isn't possible to bypass it from the browser UI.
+
+## Examples
+
+```bash
+# Basic read-only connection (default mode)
+npx dbpeek postgres://localhost/mydb
+
+# Write mode for data entry and corrections
+npx dbpeek postgres://user:pass@localhost/mydb --write
+
+# Full mode for schema changes during development
+npx dbpeek postgres://localhost/mydb --full
+
+# SQLite file — read-only
+npx dbpeek sqlite:///Users/me/data.db
+
+# SQLite in-memory database (useful for testing)
+npx dbpeek sqlite://:memory: --full
+
+# MySQL with write access on a non-standard port
+npx dbpeek mysql://root:secret@localhost:3307/app --write
+
+# Start on a specific port and skip auto browser open
+npx dbpeek sqlite:///data.db --port 4000 --no-open
+
+# MSSQL with Windows-style connection string
+npx dbpeek "mssql://sa:Password1@localhost/master"
+
+# Hosted PostgreSQL (Supabase, Neon, Railway, etc.)
+npx dbpeek "postgres://user:pass@host.example.com/db?sslmode=require"
+```
+
+## Connection URL format
+
+```
+dialect://[user[:password]@]host[:port]/database[?param=value]
+```
+
+| Dialect | Example |
+|---------|---------|
+| PostgreSQL | `postgres://alice:secret@localhost:5432/myapp` |
+| MySQL | `mysql://root:pass@127.0.0.1:3306/shop` |
+| SQLite | `sqlite:///absolute/path/to/file.db` |
+| MSSQL | `mssql://sa:Password1@localhost:1433/master` |
+
+Common query parameters:
+- `?sslmode=require` — require SSL (PostgreSQL, supported by most hosted providers)
+- `?sslmode=disable` — disable SSL (development only)
+- `?connect_timeout=10` — connection timeout in seconds

@@ -1,0 +1,62 @@
+---
+title: "EXPLAIN plans"
+description: "Visualize query execution plans to diagnose slow queries and missing indexes."
+category: "Query analysis"
+---
+
+# EXPLAIN plans
+
+The EXPLAIN plan view lets you see exactly how your database intends to execute a query — before or after running it. Use it to diagnose slow queries, spot missing indexes, and understand join strategies.
+
+## Opening the plan view
+
+Press <KeyboardShortcut keys={['⌘', 'E']} /> or click the **EXPLAIN** button in the toolbar. dbpeek runs your current query through the dialect's EXPLAIN mechanism and renders the result as a visual plan tree.
+
+## Per-dialect EXPLAIN syntax
+
+dbpeek wraps your SQL automatically. This is the statement it sends for each dialect:
+
+<DialectTabs
+  postgres="EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) <your_sql>"
+  mysql="-- Basic (all versions):\nEXPLAIN FORMAT=JSON <your_sql>\n\n-- Full ANALYZE (MySQL 8.0.18+):\nEXPLAIN ANALYZE <your_sql>"
+  sqlite="EXPLAIN QUERY PLAN <your_sql>"
+  mssql="SET STATISTICS PROFILE ON;\n<your_sql>;\nSET STATISTICS PROFILE OFF;"
+/>
+
+You can also switch to **Raw plan view** to see the full JSON or text output exactly as the database returned it.
+
+## Reading the visual tree
+
+The plan tree renders each operation as a node. Common node types include **Seq Scan**, **Index Scan**, **Index Only Scan**, **Hash Join**, **Merge Join**, **Nested Loop**, **Sort**, **Aggregate**, and **Bitmap Heap Scan**.
+
+Each node shows:
+
+- **Operation type** — what the database is doing at this step
+- **Cost estimate** — the planner's estimated cost (in arbitrary units)
+- **Estimated rows** — how many rows the planner expected
+- **Actual rows** — how many rows were actually produced (requires ANALYZE)
+- **Actual time** — wall-clock time for this node (requires ANALYZE)
+
+### Cost bars
+
+Every node has a color-coded cost bar showing its share of the total query cost:
+
+- **Red** — node accounts for more than 80% of total cost. Investigate first.
+- **Amber** — node accounts for 40–80% of total cost. Worth reviewing.
+- **Green** — node accounts for less than 40% of total cost. Probably fine.
+
+Click any node to expand a detail panel showing the raw JSON for that node, including buffer usage (PostgreSQL), loop counts, and filter conditions.
+
+## Interpreting common patterns
+
+**Actual rows vs estimated rows mismatch** — If the planner estimated 10 rows but got 50,000, your table statistics are stale. Run `ANALYZE` (PostgreSQL/SQLite) or `ANALYZE TABLE` (MySQL) to refresh them.
+
+**Seq Scan on a large table** — A sequential scan reads every row. On a large table, this usually means a missing index on the column in your WHERE clause. Check whether an index on that column would help, then re-EXPLAIN.
+
+**Nested Loop with high row counts** — Nested loops multiply row counts at each iteration. If the outer side returns many rows and the inner lookup is not indexed, performance degrades quadratically. Consider a Hash Join or ensure the inner side has an appropriate index.
+
+**Sort node near the top** — An explicit sort often means your ORDER BY columns aren't covered by an index. Adding an index on those columns can eliminate the sort entirely.
+
+## Raw plan view
+
+Toggle the **Raw** button above the plan tree to switch between the visual tree and the full plain-text or JSON output from the database. This is useful when you need to copy the plan into a forum post, share it with a colleague, or paste it into an external plan analysis tool.

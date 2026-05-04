@@ -1,0 +1,45 @@
+---
+title: "Query history"
+description: "Browse, search, and reload every query run during the current session."
+category: "Query analysis"
+---
+
+# Query history
+
+The query history panel gives you a searchable log of every statement executed during the current session. Because history is kept entirely in memory, it is automatically cleared when the terminal process exits — no persistent log files are written to disk.
+
+## Opening and closing
+
+Press <KeyboardShortcut keys={['⌘', 'H']} /> to toggle the history panel.
+
+The panel **pushes in from the right side** of the interface. It is not a modal overlay. As it opens, the editor pane and results area shrink horizontally to make room — both remain fully visible and usable while you browse history.
+
+## What each entry shows
+
+Every history entry displays:
+
+- **Timestamp** — relative time such as "2 minutes ago" or "just now"
+- **SQL preview** — the first line of the statement, truncated if long
+- **Row count** — number of rows returned (or rows affected for DML)
+- **Execution time** — wall-clock time from send to first byte of response
+- **Status indicator** — green check mark for success, red X for error
+
+## Loading a query from history
+
+Click any history row to load that SQL into the currently active editor tab. The query is loaded but **not re-executed** — you can review or edit it before running.
+
+## Searching history
+
+A filter input at the top of the panel searches the full SQL text of every entry in real time. The search is case-insensitive and matches any substring. There is no regex mode.
+
+## Ordering and limits
+
+Entries are ordered **most recent first**. There is no pagination — the entire in-memory list is rendered. dbpeek keeps up to **500 entries** per session. Once the limit is reached, the oldest entry is dropped to make room for each new one.
+
+## Multi-statement batches
+
+When you run a script containing multiple statements separated by semicolons, **each statement gets its own history entry**. The entries appear in the order they were executed and share the same timestamp (within milliseconds of each other).
+
+## Privacy
+
+<PrivacyCallout>Query history is stored exclusively in process memory (a Zustand store in the React frontend). It is never written to disk, never sent to any server, and never persisted between sessions. Closing the browser tab does not clear history — only closing the terminal process does.</PrivacyCallout>

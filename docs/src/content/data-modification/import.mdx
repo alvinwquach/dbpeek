@@ -1,0 +1,64 @@
+---
+title: "CSV / JSON import"
+description: "Drag a CSV or JSON file to import rows into a database table with column mapping and conflict resolution."
+category: "Data modification"
+---
+
+# CSV / JSON import
+
+<ScopeBadge mode="write" />
+
+The import feature lets you load data from a local file into a database table without writing INSERT statements. All processing happens in the browser — the file never leaves your machine.
+
+## Supported formats
+
+- **CSV** — any delimiter (auto-detected), with or without a header row
+- **JSON** — an array of objects, where each object's keys map to column names
+
+## Opening the import dialog
+
+Either:
+- Click the **Import** button in the toolbar, or
+- **Drag a CSV or JSON file** directly onto the results panel
+
+## Import workflow
+
+### Step 1 — Upload
+
+Drag your file into the dialog, or click the drop zone to open a file picker. The file is read locally using the browser File API.
+
+### Step 2 — Preview
+
+The first 10 rows of the file are shown in a preview grid. dbpeek displays the detected delimiter, row count, and column names.
+
+### Step 3 — Map columns
+
+Each source column from the file is mapped to a destination column in the target table. dbpeek auto-maps columns by **exact name match** (case-insensitive). Unmapped source columns are ignored. Unmapped destination columns receive their database default value or NULL.
+
+You can override any mapping using the dropdown for each row.
+
+### Step 4 — Choose conflict strategy
+
+When an imported row conflicts with an existing row (e.g., duplicate primary key or unique constraint violation), dbpeek offers three strategies:
+
+| Strategy | Behavior |
+|----------|----------|
+| **Skip** | Ignore the conflicting row and continue |
+| **Update (upsert)** | Update the existing row with the imported values. Requires a primary key. |
+| **Error** | Halt the entire import on the first conflict |
+
+### Step 5 — Import
+
+Click **Import** to begin. All inserts run inside a **single transaction**. If any row fails (network error, constraint violation, type mismatch), the entire import rolls back and no rows are inserted.
+
+A progress indicator shows the current position: "Inserting row 1,200 of 15,000..."
+
+After completion, a success message shows the total rows inserted, or an error message identifies the failing row and the database error.
+
+## File size limits
+
+CSV files are parsed in the browser using [PapaParse](https://www.papaparse.com/). JSON files are parsed with `JSON.parse()`. The practical limit is approximately **50 MB** in modern browsers, which covers most flat files. For files larger than this, consider splitting the file or using the database's native bulk load tool (`COPY` for PostgreSQL, `LOAD DATA INFILE` for MySQL).
+
+## Privacy
+
+<PrivacyCallout>The file you import is read and parsed entirely in the browser. The raw file bytes are never sent to the Express server — only the parsed row data is sent as JSON in the POST /api/import request body, which stays on localhost.</PrivacyCallout>

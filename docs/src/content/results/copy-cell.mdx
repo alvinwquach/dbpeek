@@ -1,0 +1,70 @@
+---
+title: "Copy cell / copy row"
+description: "Right-click any results grid cell to copy individual cell values, full rows as JSON or CSV, or entire columns."
+category: "Results"
+---
+
+# Copy cell / copy row
+
+Right-clicking any cell in the results grid opens a context menu with copy options at multiple granularities.
+
+## Context menu options
+
+**Copy cell value** — copies the raw value of the clicked cell as plain text.
+
+**Copy row as JSON** — copies the entire row as a JSON object:
+
+```json
+{"id": 42, "email": "alex@example.com", "status": "active", "created_at": "2024-01-15T14:30:00Z"}
+```
+
+Keys are the column names. Values use their JavaScript types (numbers stay numbers, booleans stay booleans).
+
+**Copy row as CSV** — copies the row as comma-separated values with a header line:
+
+```
+id,email,status,created_at
+42,alex@example.com,active,2024-01-15T14:30:00Z
+```
+
+**Copy column as CSV** — copies all values in the clicked column (with header) as newline-separated values:
+
+```
+email
+alex@example.com
+jo@example.com
+sam@example.com
+```
+
+**Select row** — selects the row for keyboard navigation without triggering a copy.
+
+## Keyboard shortcuts
+
+| Action | Mac | Windows/Linux |
+|--------|-----|---------------|
+| Copy selected cell | <Kbd>⌘</Kbd><Kbd>C</Kbd> | <Kbd>Ctrl</Kbd><Kbd>C</Kbd> |
+| Navigate between cells | <Kbd>←</Kbd><Kbd>→</Kbd><Kbd>↑</Kbd><Kbd>↓</Kbd> | <Kbd>←</Kbd><Kbd>→</Kbd><Kbd>↑</Kbd><Kbd>↓</Kbd> |
+
+Arrow key navigation moves the selection between cells in the results grid. <Kbd>⌘</Kbd><Kbd>C</Kbd> copies the currently selected cell's value.
+
+## NULL value handling
+
+| Format | NULL representation |
+|--------|---------------------|
+| Cell value | empty string |
+| Row as JSON | `null` (JSON null) |
+| Row as CSV | empty field (two consecutive commas, or trailing comma) |
+| Column as CSV | empty line for that row |
+
+## Clipboard API
+
+All copy operations use `navigator.clipboard.writeText()`. This API requires either:
+
+- A secure context (HTTPS), or
+- `localhost` (which is considered secure)
+
+Since dbpeek always runs on `localhost`, clipboard access works without any additional permissions. If you're accessing dbpeek through a proxy or tunnel that changes the origin, clipboard operations may fail silently — in that case, use the value viewer's Copy button instead.
+
+## Copying multiple rows
+
+To copy multiple rows at once, select them first using click + Shift+click (range selection), then right-click and choose **Copy selected rows as JSON** or **Copy selected rows as CSV**. The output includes one JSON object or CSV line per selected row.

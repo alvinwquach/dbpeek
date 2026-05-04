@@ -1,0 +1,79 @@
+---
+title: "Schema-aware autocomplete"
+description: "How dbpeek's CodeMirror autocomplete uses your live schema to suggest table names, column names, and SQL keywords."
+category: "Editor"
+---
+
+# Schema-aware autocomplete
+
+dbpeek fetches your full database schema at connect time and uses it to power SQL completions in the editor. Completions are served from an in-memory cache — there is no network roundtrip after the initial schema load.
+
+## What gets completed
+
+### 1. Table names
+
+Table names complete after SQL keywords that expect a table reference:
+
+- `FROM` — `FROM use` → suggests `users`, `user_roles`, `user_sessions`
+- `JOIN` — `JOIN ord` → suggests `orders`, `order_items`
+- `INTO` — `INSERT INTO pay` → suggests `payments`
+- `UPDATE` — `UPDATE pro` → suggests `products`
+- `DELETE FROM` — `DELETE FROM ses` → suggests `sessions`
+
+### 2. Column names
+
+Column names complete in positions that expect an expression:
+
+- `SELECT` — shows all columns from tables already in the `FROM` clause
+- `WHERE` — shows columns for all tables in scope
+- `ORDER BY` — shows columns for all tables in scope
+- `GROUP BY` — shows columns for all tables in scope
+- `SET` — shows columns for the table named in `UPDATE`
+
+### 3. Dot completion
+
+Type a table name followed by a dot to get columns scoped to that table only:
+
+```sql
+SELECT users.  -- completion list shows only users table's columns
+```
+
+This works with aliases too: `u.` after `FROM users u` will complete with `users` columns.
+
+### 4. SQL keywords
+
+All SQL reserved words and clause keywords are included: `SELECT`, `FROM`, `WHERE`, `JOIN`, `LEFT JOIN`, `INNER JOIN`, `GROUP BY`, `ORDER BY`, `HAVING`, `LIMIT`, `OFFSET`, `UNION`, `INTERSECT`, `EXCEPT`, and others.
+
+### 5. SQL functions
+
+Built-in functions complete by prefix:
+
+```sql
+COUNT(   -- completes after "CO"
+SUM(     -- completes after "SU"
+COALESCE(
+NOW()
+DATE_TRUNC(
+SUBSTRING(
+```
+
+## How to trigger autocomplete
+
+**Automatic** — completions appear after you type 1 character in a relevant position. There is a short debounce (150 ms) to avoid showing completions on every keystroke.
+
+**Manual** — press <KeyboardShortcut keys={['⌘', 'Space']} /> to force the completion list to appear at the current cursor position, regardless of context.
+
+Navigate the completion list with <Kbd>↑</Kbd> / <Kbd>↓</Kbd>, accept with <Kbd>Tab</Kbd> or <Kbd>↵</Kbd>, dismiss with <Kbd>Esc</Kbd>.
+
+## Dialect-specific completions
+
+<DialectTabs
+  postgres={`-- PostgreSQL includes LIMIT / OFFSET keywords and pg-specific functions\n-- e.g., pg_catalog, jsonb_*, array_*, to_tsvector\nSELECT * FROM users LIMIT 10 OFFSET 20;`}
+  mysql={`-- MySQL includes LIMIT / OFFSET, and MySQL-specific functions\n-- e.g., GROUP_CONCAT, IFNULL, FROM_UNIXTIME\nSELECT * FROM users LIMIT 10 OFFSET 20;`}
+  sqlite={`-- SQLite includes PRAGMA completions\n-- e.g., PRAGMA table_info('users'), PRAGMA foreign_key_list('orders')\nPRAGMA table_info('users');`}
+  mssql={`-- MSSQL uses TOP instead of LIMIT — keywords are adjusted accordingly\n-- e.g., TOP, NOLOCK, WITH (NOLOCK), EXEC, sp_* procedure names\nSELECT TOP 10 * FROM users;`}
+/>
+
+## Schema refresh
+
+The schema cache is populated once at connection time. If you add a table or column during the session and want completions for it, click the **Refresh schema** icon at the top of the schema sidebar. This re-fetches the schema and updates the completion source without restarting dbpeek.

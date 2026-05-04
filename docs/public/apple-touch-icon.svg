@@ -1,0 +1,22 @@
+<svg width="180" height="180" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark background -->
+  <rect width="180" height="180" fill="#0a0a0f" rx="40"/>
+
+  <!-- Icon: database table mockup -->
+  <g transform="translate(30, 45)">
+    <!-- Frame -->
+    <rect x="0" y="0" width="120" height="90" rx="4" fill="none" stroke="#4a8af4" stroke-width="2"/>
+
+    <!-- Top bar -->
+    <rect x="0" y="0" width="120" height="20" fill="#4a8af4" rx="4"/>
+    <circle cx="10" cy="10" r="2" fill="#0a0a0f"/>
+    <circle cx="22" cy="10" r="2" fill="#0a0a0f"/>
+    <circle cx="34" cy="10" r="2" fill="#0a0a0f"/>
+
+    <!-- Rows -->
+    <line x1="0" y1="30" x2="120" y2="30" stroke="#2dd4a0" stroke-width="1" opacity="0.5"/>
+    <line x1="0" y1="45" x2="120" y2="45" stroke="#2dd4a0" stroke-width="1" opacity="0.5"/>
+    <line x1="0" y1="60" x2="120" y2="60" stroke="#2dd4a0" stroke-width="1" opacity="0.5"/>
+    <line x1="0" y1="75" x2="120" y2="75" stroke="#2dd4a0" stroke-width="1" opacity="0.5"/>
+  </g>
+</svg>

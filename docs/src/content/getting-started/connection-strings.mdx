@@ -1,0 +1,109 @@
+---
+title: "Connection strings"
+description: "Connection string format reference for PostgreSQL, MySQL, SQLite, and MSSQL with hosted platform examples."
+category: "Getting started"
+---
+
+# Connection strings
+
+dbpeek uses standard URL-format connection strings. The dialect is determined by the URL scheme.
+
+## Format by dialect
+
+<DialectTabs
+  postgres={`postgres://user:password@host:5432/database`}
+  mysql={`mysql://user:password@host:3306/database`}
+  sqlite={`sqlite:///path/to/file.db\n# In-memory (lost when dbpeek exits):\nsqlite://:memory:`}
+  mssql={`mssql://user:password@host:1433/database`}
+/>
+
+All fields except the host are optional when using local defaults. The database driver fills in sensible defaults for missing fields.
+
+## Local connection shorthands
+
+For local development databases, you can omit credentials and the port:
+
+```bash
+# PostgreSQL — uses the current OS user, no password, default port 5432
+npx dbpeek postgres://localhost/mydb
+
+# MySQL — root user, no password, default port 3306
+npx dbpeek mysql://root@localhost/mydb
+
+# SQLite — absolute path to the file
+npx dbpeek sqlite:///Users/me/projects/myapp/data.db
+
+# SQLite — relative path (resolved from where you run the command)
+npx dbpeek sqlite://./dev.db
+```
+
+## Hosted platform examples
+
+### Supabase
+
+```bash
+npx dbpeek "postgres://postgres:[password]@db.[ref].supabase.co:5432/postgres?sslmode=require"
+```
+
+Find your connection string in: Supabase dashboard → Project → Settings → Database → Connection string → URI.
+
+### Neon
+
+```bash
+npx dbpeek "postgres://[user]:[password]@[host].neon.tech/[db]?sslmode=require"
+```
+
+### PlanetScale
+
+```bash
+npx dbpeek "mysql://[user]:[password]@[host].psdb.cloud/[db]?ssl={\"rejectUnauthorized\":true}"
+```
+
+### Railway
+
+Copy the connection string from: Railway dashboard → your service → Connect tab → select your dialect.
+
+### AWS RDS
+
+```bash
+# PostgreSQL on RDS
+npx dbpeek "postgres://admin:pass@myinstance.abc123.us-east-1.rds.amazonaws.com:5432/mydb?sslmode=require"
+
+# MySQL on RDS
+npx dbpeek "mysql://admin:pass@myinstance.abc123.us-east-1.rds.amazonaws.com:3306/mydb?ssl=true"
+```
+
+Ensure your RDS security group allows inbound connections from your machine's IP on the database port.
+
+## SSL options
+
+Most hosted databases require SSL. Add query parameters to the connection string:
+
+| Parameter | Effect |
+|-----------|--------|
+| `?sslmode=require` | Require SSL, don't verify the certificate (Postgres) |
+| `?sslmode=verify-full` | Require SSL, verify the certificate chain (Postgres) |
+| `?ssl=true` | Enable SSL (MySQL) |
+| `?ssl={"rejectUnauthorized":false}` | SSL without cert verification (MySQL) |
+
+For self-signed certificates on internal hosts, use `sslmode=require` (Postgres) or `rejectUnauthorized: false` (MySQL) to skip certificate verification.
+
+## Security
+
+<PrivacyCallout>
+The connection string is passed as a CLI argument and exists in process memory only for the duration of the session. dbpeek does not write it to any config file, log file, or history file. Your shell history may record it — use an environment variable to avoid this.
+</PrivacyCallout>
+
+To avoid the connection string appearing in shell history:
+
+```bash
+# Store in an env var, then pass it
+export DB_URL="postgres://user:pass@host:5432/mydb"
+npx dbpeek "$DB_URL"
+```
+
+Or prefix with a space in bash/zsh (if `HISTCONTROL=ignorespace` is set):
+
+```bash
+ npx dbpeek postgres://user:pass@host:5432/mydb
+```

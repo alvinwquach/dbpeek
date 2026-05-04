@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    /**
+     * Target ES2020 for modern browser support without transpiling everything.
+     * DOM + DOM.Iterable give us full browser API types.
+     */
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    /**
+     * ESNext modules with bundler resolution — Vite handles all imports,
+     * so we don't need Node-style resolution. allowImportingTsExtensions
+     * lets us import .ts/.tsx files directly (Vite strips extensions at
+     * bundle time). noEmit because Vite does the actual compilation.
+     */
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    /**
+     * Strict mode catches null dereferences, implicit any, unused vars, etc.
+     * Matches the main dbpeek tsconfig for consistency.
+     */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    /**
+     * @/ alias maps to src/ — used across all imports to avoid ../../../ hell.
+     * Vite's resolve.alias in vite.config.ts mirrors this at bundle time.
+     */
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "scripts"]
+}

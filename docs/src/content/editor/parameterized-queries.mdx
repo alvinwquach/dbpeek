@@ -1,0 +1,98 @@
+---
+title: "Parameterized queries"
+description: "Use $1 positional or :name named bind variables in dbpeek to prevent SQL injection and reuse queries with different values."
+category: "Editor"
+---
+
+# Parameterized queries
+
+Parameterized queries use placeholders instead of literal values. When placeholders are detected, a parameter panel appears below the editor with an input field for each one. Values are passed to the database driver separately — they are never string-concatenated into the SQL.
+
+## Placeholder styles
+
+dbpeek supports two placeholder formats:
+
+**Positional — PostgreSQL style (`$1`, `$2`, ...)**
+
+```sql
+SELECT * FROM orders
+WHERE user_id = $1
+  AND status = $2
+  AND created_at >= $3;
+```
+
+**Named — colon style (`:name`)**
+
+```sql
+SELECT * FROM products
+WHERE category = :category
+  AND price BETWEEN :min_price AND :max_price;
+```
+
+Both styles work in all four dialects. Use whichever is more readable for your query.
+
+## How to use the parameter panel
+
+1. Write a query with placeholders in the editor.
+2. The parameter panel appears automatically below the editor when a placeholder is detected.
+3. Each placeholder gets a labeled input field.
+4. Fill in the values and press <Kbd>⌘</Kbd><Kbd>↵</Kbd> to run.
+
+![Parameter panel with two input fields](/docs/screenshots/parameter-panel.png)
+
+Example workflow:
+
+```sql
+SELECT
+  u.email,
+  COUNT(o.id) AS order_count
+FROM users u
+JOIN orders o ON o.user_id = u.id
+WHERE u.created_at >= $1
+  AND u.plan = $2
+GROUP BY u.email
+ORDER BY order_count DESC
+LIMIT $3;
+```
+
+The panel shows three fields: `$1`, `$2`, `$3`. Fill in `2024-01-01`, `pro`, `50` and run.
+
+## Under the hood
+
+Parameters are passed via `knex.raw(sql, params)`:
+
+```js
+// What happens internally for positional parameters:
+await knex.raw(
+  'SELECT * FROM orders WHERE user_id = $1 AND status = $2',
+  [42, 'completed']
+)
+
+// For named parameters:
+await knex.raw(
+  'SELECT * FROM products WHERE category = :category AND price > :min_price',
+  { category: 'electronics', min_price: 100 }
+)
+```
+
+The database driver handles escaping. The values never touch string concatenation.
+
+## Type coercion
+
+Parameter values are entered as text in the input fields. dbpeek infers the type before passing to the driver:
+
+- Looks like an integer (`42`) → passed as `Number`
+- Looks like a float (`3.14`) → passed as `Number`
+- Looks like a boolean (`true`, `false`) → passed as `Boolean`
+- Looks like a date (`2024-01-15`) → passed as `Date`
+- Everything else → passed as `String`
+
+If the automatic coercion is wrong (e.g., you want `"42"` as a string), quote the value in the input field: `"42"`.
+
+## Why use parameterized queries
+
+**Prevents SQL injection** — Even in `--write` and `--full` modes, injecting SQL through a parameter value is not possible because the value is never inserted into the SQL string.
+
+**Reusability** — Change just the parameter values and re-run without re-editing the SQL.
+
+**Readability** — The query logic is separated from the specific values being tested, making it easier to understand and share.

@@ -1,0 +1,52 @@
+---
+title: "Query cancellation"
+description: "Cancel long-running queries in dbpeek with Cmd+Period or the Cancel button — works for all four SQL dialects."
+category: "Editor"
+---
+
+# Query cancellation
+
+When a query is running, the toolbar shows a red **Cancel** button. Click it, or press <KeyboardShortcut keys={['⌘', '.']} />, to abort the query.
+
+After cancellation, the results panel shows "Query cancelled" and the tab returns to its ready state. Any partial results are discarded.
+
+## How cancellation works per dialect
+
+Cancellation mechanics differ by dialect because each database has its own concept of a "session" or "connection ID" that can be targeted externally.
+
+<DialectTabs
+  postgres={`-- dbpeek records the backend PID when the query starts:\n-- SELECT pg_backend_pid()\n\n-- When cancel is requested, a separate connection runs:\nSELECT pg_cancel_backend($pid);\n\n-- pg_cancel_backend sends SIGINT to the Postgres worker process.\n-- The query stops at the next safe cancellation point.\n-- The connection remains open and usable.`}
+  mysql={`-- dbpeek records the connection ID when the query starts:\n-- SELECT CONNECTION_ID()\n\n-- When cancel is requested, a separate connection runs:\nKILL QUERY $connection_id;\n\n-- KILL QUERY stops the statement but leaves the connection alive.\n-- (KILL alone would close the connection entirely -- not used here.)`}
+  sqlite={`-- SQLite runs synchronously in the Node.js process.\n-- There is no separate connection concept.\n\n-- Cancellation calls db.interrupt() on the better-sqlite3 instance.\n-- This sets an interrupt flag that SQLite checks during long reads/writes.\n-- The operation stops at the next SQLite VM instruction boundary.`}
+  mssql={`-- dbpeek records the SPID (server process ID) when the query starts:\n-- SELECT @@SPID\n\n-- When cancel is requested, a separate connection runs:\nKILL $spid;\n\n-- Note: KILL in MSSQL terminates the session, not just the query.\n-- dbpeek reopens the primary connection after a kill.`}
+/>
+
+## Why a separate connection is needed
+
+For PostgreSQL, MySQL, and MSSQL: the primary database connection is blocked waiting for the query to complete. A second, independent connection is used to issue the cancel command. Both connections must reference the same backend session ID (PID, connection ID, or SPID) that was recorded when the query started.
+
+```
+Browser                  Express server           Database
+   |                          |                      |
+   |-- POST /api/query ------>|                      |
+   |                          |-- query (blocked) -->|  (primary connection)
+   |                          |                      |  ... running ...
+   |-- POST /api/query/cancel>|                      |
+   |                          |-- KILL $session ---->|  (secondary connection)
+   |                          |                      |  ... cancelled ...
+   |                          |<- query aborted ---- |  (primary connection)
+   |<-- "Query cancelled" ----|                      |
+```
+
+## SQLite cancellation
+
+SQLite runs the query synchronously inside the Node.js event loop. There is no separate connection or OS-level process to target. Instead, `db.interrupt()` (a `better-sqlite3` method) sets an internal flag in the SQLite library. SQLite checks this flag at regular intervals during execution (between VM instructions in the bytecode engine) and throws an `SQLITE_INTERRUPT` error when it sees it.
+
+Because JavaScript is single-threaded, the cancel request reaches the server only after the current synchronous call yields — which SQLite does during long table scans. For very short queries, cancellation may arrive after the query completes naturally.
+
+## After cancellation
+
+- The results panel displays: `Query cancelled by user`
+- The tab returns to the ready state (no spinner, Run button re-enabled)
+- The database connection is left open and ready for the next query (except MSSQL, where a new connection is established)
+- Query history records the cancelled query with a "cancelled" status

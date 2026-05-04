@@ -1,0 +1,43 @@
+{
+  "name": "dbpeek-docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5001",
+    "build": "vite build && pnpm build:search-index",
+    "build:search-index": "tsx scripts/build-search-index.ts",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mdx-js/react": "^3.1.0",
+    "flexsearch": "^0.7.43",
+    "framer-motion": "^12.0.0",
+    "lucide-react": "^0.469.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^6.28.0",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@mdx-js/rollup": "^3.1.0",
+    "@shikijs/rehype": "^3.0.0",
+    "@tailwindcss/vite": "^4.1.5",
+    "@types/flexsearch": "^0.7.6",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "gray-matter": "^4.0.3",
+    "rehype-autolink-headings": "^7.1.0",
+    "rehype-slug": "^6.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "shiki": "^3.0.0",
+    "tailwindcss": "^4.1.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}

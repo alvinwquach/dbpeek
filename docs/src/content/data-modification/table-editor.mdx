@@ -1,0 +1,71 @@
+---
+title: "Table structure editor"
+description: "Add, remove, and rename columns via a GUI that generates and previews ALTER TABLE statements."
+category: "Data modification"
+---
+
+# Table structure editor
+
+<ScopeBadge mode="full" />
+
+The table structure editor lets you modify your schema without writing DDL. Changes are previewed as ALTER TABLE statements before anything executes.
+
+## Accessing the editor
+
+Right-click any table in the schema sidebar and choose **Edit structure**, or click the structure icon (columns icon) next to the table name.
+
+The editor opens as a panel showing all current columns with their types, defaults, and constraints.
+
+## Supported operations
+
+### Add column
+
+Click **+ Add column** to insert a new row into the column list. Fill in:
+
+- **Name** — column name (validated against the dialect's naming rules)
+- **Type** — select from a dialect-specific dropdown (e.g., `VARCHAR`, `INTEGER`, `TIMESTAMP`, `JSONB`)
+- **Default** — optional default value expression
+- **NOT NULL** — toggle the constraint on or off
+
+### Remove column
+
+Select a column row and click the delete icon. A confirmation prompt appears before the column is removed from the preview list.
+
+### Rename column
+
+Click the column name to edit it inline.
+
+### Change column type
+
+Click the type badge to open the type selector. Only types valid for the current dialect are shown.
+
+### Modify default value
+
+Click the default value cell to edit it as a text expression. Use SQL expressions like `NOW()`, `gen_random_uuid()`, or a literal value.
+
+### Add / remove NOT NULL constraint
+
+Toggle the NOT NULL checkbox for any column.
+
+## Preview before executing
+
+Before any change is applied to the database, dbpeek shows the full set of generated ALTER TABLE statements:
+
+```sql
+ALTER TABLE users ADD COLUMN last_login TIMESTAMP;
+ALTER TABLE users DROP COLUMN deprecated_field;
+ALTER TABLE users RENAME COLUMN username TO handle;
+```
+
+Review the statements, then click **Execute all** to apply them or **Cancel** to discard all pending changes.
+
+## SQLite limitation
+
+<WarningCallout>SQLite has limited ALTER TABLE support. Older SQLite versions (pre-3.35.0) do not support `DROP COLUMN`, and no version supports `RENAME COLUMN` via a simple ALTER. When you request these operations on a SQLite database, dbpeek handles them using the recommended pragma sequence: rename the original table, create the new table with the desired structure, copy data across, drop the renamed original, and update any foreign key references. This process runs inside a transaction but takes significantly longer than a simple ALTER TABLE on PostgreSQL or MySQL. Large tables may take several seconds.</WarningCallout>
+
+## Notes
+
+- **PostgreSQL DDL is transactional.** If you apply multiple changes at once, they run inside a `BEGIN` / `COMMIT` block. If any step fails, all changes roll back.
+- **MySQL DDL is not transactional.** Each ALTER TABLE statement commits immediately. If a later statement fails, earlier ones are already applied.
+- **MSSQL** supports transactional DDL similarly to PostgreSQL.
+- The table editor does not support adding or removing indexes, creating foreign keys, or modifying primary keys. For those operations, write the DDL directly in the editor with `--full` mode.

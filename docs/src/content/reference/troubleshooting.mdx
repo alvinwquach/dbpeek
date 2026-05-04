@@ -1,0 +1,115 @@
+---
+title: "Troubleshooting"
+description: "Solutions to common errors and connection problems."
+category: "Reference"
+---
+
+# Troubleshooting
+
+## Cannot find module 'better-sqlite3'
+
+SQLite requires a native C++ addon that must be compiled for your specific platform and Node.js version. You'll see this error if the prebuilt binary for your platform isn't available.
+
+**Solution:**
+
+1. Install the build toolchain:
+   - **macOS**: `xcode-select --install`
+   - **Windows**: Install "Build Tools for Visual Studio" from the Visual Studio downloads page
+   - **Linux**: `sudo apt-get install build-essential python3` (Debian/Ubuntu) or equivalent
+2. Install node-gyp globally: `npm install -g node-gyp`
+3. Retry: `npx dbpeek sqlite:///path/to/file.db`
+
+If you're on an Apple Silicon Mac and the error persists, ensure you're running the arm64 build of Node.js (not Rosetta x64): `node -p process.arch` should print `arm64`.
+
+## EADDRINUSE: address already in use :::3000
+
+Port 3000 is occupied by another process. dbpeek normally tries ports 3000–3999 automatically and picks the first available one. If all ports in the range are occupied, or if you requested a specific port with `--port`, you'll see this error.
+
+**Solutions:**
+
+```bash
+# Find and kill whatever is using port 3000
+lsof -ti:3000 | xargs kill
+
+# Or specify a different port
+npx dbpeek postgres://localhost/mydb --port 4321
+```
+
+## Connection refused (localhost PostgreSQL)
+
+**Symptom:** `connect ECONNREFUSED 127.0.0.1:5432`
+
+**Fix 1:** Use `127.0.0.1` instead of `localhost` in the connection string:
+
+```bash
+npx dbpeek postgres://127.0.0.1/mydb
+```
+
+On some systems, `localhost` resolves to IPv6 `::1`, but PostgreSQL listens only on IPv4 `127.0.0.1`. Using the literal IP address bypasses DNS resolution.
+
+**Fix 2:** Verify PostgreSQL is running:
+
+```bash
+pg_isready -h localhost
+# Should print: localhost:5432 - accepting connections
+```
+
+If PostgreSQL isn't running, start it with your system's service manager (`brew services start postgresql`, `systemctl start postgresql`, etc.).
+
+## SSL errors with hosted PostgreSQL
+
+**Symptom:** `SSL SYSCALL error: EOF detected` or `SELF_SIGNED_CERT_IN_CHAIN`
+
+Most hosted PostgreSQL providers require SSL. Add `?sslmode=require` to your connection string:
+
+```bash
+npx dbpeek "postgres://user:pass@host.example.com/db?sslmode=require"
+```
+
+To disable SSL certificate verification (for self-signed certs in development — not recommended for production):
+
+```bash
+npx dbpeek "postgres://localhost/mydb?sslmode=no-verify"
+```
+
+## Browser doesn't open automatically
+
+dbpeek always prints the URL to stdout. If your browser doesn't open, copy the URL and open it manually. It is typically:
+
+```
+http://localhost:3000/app
+```
+
+To always suppress the auto-open behavior: `npx dbpeek ... --no-open`
+
+## Autocomplete not showing
+
+Schema introspection runs in the background after the connection is established. Wait 1–2 seconds for it to complete, then try <KeyboardShortcut keys={['⌘', 'Space']} /> again. If autocomplete never appears:
+
+1. Check the terminal for schema fetch errors — they appear as `[schema] error: ...` log lines.
+2. Verify your database user has SELECT permission on `information_schema` (or the dialect equivalent).
+
+## Query times out
+
+The connection pool uses a default statement timeout of **30 seconds**. For long-running queries:
+
+1. Open the EXPLAIN plan first (<KeyboardShortcut keys={['⌘', 'E']} />) to understand the query plan and identify bottlenecks.
+2. Press <KeyboardShortcut keys={['⌘', '.']} /> to cancel a running query.
+3. For legitimate long queries (migrations, large exports), consider running them directly in `psql` or the equivalent CLI tool where you can set a custom statement timeout.
+
+## "EPERM: operation not permitted" on SQLite
+
+The SQLite file is read-only or owned by another user. Check the file permissions:
+
+```bash
+ls -la /path/to/file.db
+# Should show -rw-r--r-- (or -rw-rw-r-- for group write)
+
+# Fix ownership if needed
+sudo chown $(whoami) /path/to/file.db
+
+# Fix permissions if needed
+chmod 644 /path/to/file.db
+```
+
+If the file is on a network volume, copy it locally before connecting — some network filesystems don't support the file locking that SQLite requires.

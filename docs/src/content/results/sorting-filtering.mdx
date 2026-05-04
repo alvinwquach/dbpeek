@@ -1,0 +1,70 @@
+---
+title: "Sorting & filtering"
+description: "Sort and filter query results client-side in the dbpeek results grid — click column headers to sort, filter icons to narrow rows."
+category: "Results"
+---
+
+# Sorting & filtering
+
+Sorting and filtering in the results grid are client-side operations on the data already loaded into the browser. They do not issue new queries to the database.
+
+## Sorting
+
+Click any column header to sort the results by that column. Each click cycles through three states:
+
+1. **Ascending** (↑ arrow) — lowest to highest, A to Z, oldest to newest
+2. **Descending** (↓ arrow) — highest to lowest, Z to A, newest to oldest
+3. **Unsorted** (no arrow) — original query order
+
+Only one column can be the active sort column at a time. Clicking a different column header replaces the previous sort.
+
+Sort order is type-aware:
+- **Numeric columns** — sorted numerically (so `10` comes after `9`, not after `1`)
+- **Date/timestamp columns** — sorted chronologically
+- **Text columns** — sorted lexicographically (case-insensitive)
+- **NULL values** — sorted to the bottom in both ascending and descending order
+
+## Column filtering
+
+Click the **filter icon** (funnel icon) next to any column header to reveal a text input for that column.
+
+- Type to filter rows: only rows where the column value contains the typed text are shown
+- Matching is **case-insensitive** and **substring-based** (`ord` matches `orders`, `reordered`, etc.)
+- Multiple column filters are **ANDed**: a row must pass all active filters to be shown
+
+The filtered row count updates as you type:
+
+```
+23 of 1,204 rows
+```
+
+### Clearing filters
+
+- Click the **×** in any filter input to clear that one filter
+- Click the **Clear all filters** button (appears in the results toolbar when any filter is active) to remove all filters at once
+
+## Interaction between sort and filter
+
+Sorting applies to the filtered subset. If you filter to 23 rows and then sort by a column, only those 23 rows are reordered.
+
+## Client-side vs server-side
+
+Sorting and filtering are intentionally client-side. This keeps the interaction instantaneous (no network wait) for result sets that fit in browser memory.
+
+For result sets too large to load in full, use SQL to do the filtering and ordering before fetching:
+
+```sql
+-- Server-side: filter and sort in the query
+SELECT *
+FROM orders
+WHERE status = 'pending'
+  AND created_at >= '2024-01-01'
+ORDER BY total_cents DESC
+LIMIT 1000;
+```
+
+This avoids loading rows you don't need and gives you the database's index-optimized sorting.
+
+## Export with active filters
+
+When you export results (CSV, JSON, or Excel), the export contains only the currently visible rows — after all active sorts and filters. If you have filtered to 23 rows, the export contains 23 rows. See [Export →](/results/export) for details.
