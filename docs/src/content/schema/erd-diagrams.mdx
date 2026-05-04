@@ -1,0 +1,56 @@
+---
+title: "ERD diagrams"
+description: "View auto-generated entity relationship diagrams from your live schema — tables as nodes, foreign keys as edges, powered by ReactFlow and Dagre."
+category: "Schema browsing"
+---
+
+# ERD diagrams
+
+The ERD (entity relationship diagram) view renders your database schema as an interactive node graph. Tables are nodes; foreign key relationships are directed edges.
+
+Click the **ERD** icon in the top toolbar to open the ERD canvas.
+
+![ERD canvas showing tables connected by foreign key edges](/docs/screenshots/erd-diagram.png)
+
+## What's shown
+
+**Nodes — one per table:**
+- Table name in the node header
+- All columns listed below the header with their data types
+- Primary key columns are highlighted
+
+**Edges — one per foreign key:**
+- Directed from the child table (the one with the FK column) to the parent table
+- Labeled with the column name(s) involved in the relationship
+- Arrow points toward the referenced (parent) table
+
+## How foreign keys are detected
+
+<DialectTabs
+  postgres={`-- dbpeek queries information_schema for FK constraints:\nSELECT\n  tc.table_name AS child_table,\n  kcu.column_name AS child_column,\n  ccu.table_name AS parent_table,\n  ccu.column_name AS parent_column\nFROM information_schema.table_constraints tc\nJOIN information_schema.key_column_usage kcu\n  ON tc.constraint_name = kcu.constraint_name\nJOIN information_schema.constraint_column_usage ccu\n  ON tc.constraint_name = ccu.constraint_name\nWHERE tc.constraint_type = 'FOREIGN KEY';`}
+  mysql={`-- MySQL uses key_column_usage with a filter on REFERENCED_TABLE_NAME:\nSELECT\n  TABLE_NAME AS child_table,\n  COLUMN_NAME AS child_column,\n  REFERENCED_TABLE_NAME AS parent_table,\n  REFERENCED_COLUMN_NAME AS parent_column\nFROM information_schema.KEY_COLUMN_USAGE\nWHERE TABLE_SCHEMA = DATABASE()\n  AND REFERENCED_TABLE_NAME IS NOT NULL;`}
+  sqlite={`-- SQLite has no information_schema. FK list is retrieved per table:\n-- For each table name in sqlite_master:\nPRAGMA foreign_key_list('orders');\n-- Returns: id, seq, table (parent), from (child col), to (parent col), ...`}
+  mssql={`-- MSSQL uses sys.foreign_keys and sys.foreign_key_columns:\nSELECT\n  OBJECT_NAME(fk.parent_object_id) AS child_table,\n  COL_NAME(fkc.parent_object_id, fkc.parent_column_id) AS child_column,\n  OBJECT_NAME(fk.referenced_object_id) AS parent_table,\n  COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id) AS parent_column\nFROM sys.foreign_keys fk\nJOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id;`}
+/>
+
+## Layout
+
+Nodes are positioned automatically using the **Dagre** directed graph layout algorithm. Dagre arranges nodes to minimize edge crossings and produces a top-down hierarchy where parent tables appear above child tables.
+
+## Interacting with the diagram
+
+| Interaction | Result |
+|-------------|--------|
+| Drag a node | Reposition it; other nodes stay in place |
+| Scroll / pinch | Zoom in and out |
+| Click a node | Highlight it and its direct neighbors; all other nodes dim |
+| Double-click a node | Load that table's first 100 rows in the results panel |
+| Click canvas background | Deselect; all nodes return to full opacity |
+
+Use the zoom controls in the bottom-left corner of the canvas to fit all nodes to the viewport, or zoom to a specific level.
+
+## Large schemas
+
+For databases with many tables, the ERD can become dense. Use the search input above the canvas to filter nodes by table name — matching tables stay visible; others are hidden (edges to hidden tables are also hidden).
+
+Alternatively, pin the tables you care about in the schema explorer first, then use the **Show pinned only** toggle in the ERD toolbar to render only pinned tables and the relationships between them.

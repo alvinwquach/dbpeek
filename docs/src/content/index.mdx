@@ -1,0 +1,64 @@
+---
+title: "Introduction"
+description: "dbpeek is a privacy-first, zero-install SQL client that opens in your browser with a single npx command."
+category: "Getting started"
+---
+
+# Introduction
+
+dbpeek is a browser-based SQL client that starts with one command and stores nothing. No installation, no account, no credentials saved to disk.
+
+```bash
+npx dbpeek postgres://user:pass@localhost:5432/mydb
+```
+
+That command starts a local Express server, opens your browser, and connects to your database. When you close the terminal, everything stops. Nothing persists.
+
+<PrivacyCallout>
+dbpeek never saves your connection string, query history, or results to disk. No telemetry is sent. No cloud service is contacted. Everything stays on your machine for the duration of the session.
+</PrivacyCallout>
+
+## What dbpeek does
+
+- Serves a React-based SQL client at `localhost:{port}/app`
+- Reads your database schema (tables, columns, types, foreign keys) and makes it searchable
+- Provides a CodeMirror SQL editor with schema-aware autocomplete
+- Renders query results in a virtualized TanStack Table grid
+- Generates ERD diagrams from detected foreign key relationships
+- Exports query results to CSV, JSON, or Excel
+- Visualizes result sets as bar charts, line charts, or scatter plots
+- Shows formatted EXPLAIN plans side-by-side with your query
+
+## Supported databases
+
+| Dialect | Tested versions |
+|---------|----------------|
+| PostgreSQL | 12, 13, 14, 15, 16 |
+| MySQL | 5.7, 8.0 |
+| SQLite | 3.x (via better-sqlite3) |
+| MSSQL | 2017, 2019, 2022 |
+
+## Why not DataGrip, TablePlus, or pgAdmin?
+
+**DataGrip** is a full IDE — heavyweight, paid, and stores credentials in project files that can end up in version control.
+
+**TablePlus** stores credentials in a local keychain. It's polished but paid, and native-only.
+
+**pgAdmin** is Postgres-only, complex to configure, and runs a persistent background process.
+
+dbpeek is none of those things. It's a disposable session tool: run it when you need it, close it when you're done.
+
+## Quick start by dialect
+
+<DialectTabs
+  postgres={`npx dbpeek postgres://user:pass@localhost:5432/mydb`}
+  mysql={`npx dbpeek mysql://user:pass@localhost:3306/mydb`}
+  sqlite={`npx dbpeek sqlite:///path/to/file.db`}
+  mssql={`npx dbpeek mssql://user:pass@localhost:1433/mydb`}
+/>
+
+## What's next
+
+New here? Start with [Installation →](/getting-started/installation)
+
+Already connected? Jump to the [Quickstart walkthrough →](/getting-started/quickstart) for a 90-second tour of the UI.

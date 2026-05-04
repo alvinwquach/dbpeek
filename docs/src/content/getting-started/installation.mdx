@@ -1,0 +1,94 @@
+---
+title: "Installation"
+description: "System requirements and how to run dbpeek with npx, pnpm dlx, bunx, or yarn dlx."
+category: "Getting started"
+---
+
+# Installation
+
+dbpeek requires no installation. Run it directly with your package manager's execute command.
+
+## System requirements
+
+- **Node.js 18 or later** — check with `node --version`
+- **Any modern browser** — Chrome, Firefox, Safari, Edge (all current versions)
+- **Network access to your database** — dbpeek connects from your machine, not from a server
+
+If you're on Node 16 or older, upgrade Node first. The fetch API used by the server-side schema loader requires Node 18+.
+
+## Running dbpeek
+
+### npx (comes with npm)
+
+```bash
+npx dbpeek <connection-string>
+```
+
+### pnpm
+
+```bash
+pnpm dlx dbpeek <connection-string>
+```
+
+### bunx
+
+```bash
+bunx dbpeek <connection-string>
+```
+
+### yarn
+
+```bash
+yarn dlx dbpeek <connection-string>
+```
+
+All four commands do the same thing: download the package if not cached, then run it. There's no global install step.
+
+## What happens when you run it
+
+1. **Download** — npx fetches `dbpeek` from the npm registry (one-time per version; cached for subsequent runs).
+2. **Server start** — An Express server starts on a random port between 3000 and 3999.
+3. **Browser open** — Your default browser opens automatically at `localhost:{port}/app`.
+4. **Schema load** — The server queries your database's information schema in the background. This takes 0.1–2 seconds depending on how many tables exist.
+
+<TerminalBlock
+  command="npx dbpeek postgres://user:pass@localhost:5432/mydb"
+  output={`Connecting to postgres://user:pass@localhost:5432/mydb...
+✓ Connected to mydb (PostgreSQL 16.1)
+✓ Schema loaded: 24 tables
+  Server running at http://localhost:3421/app
+  Opening browser...`}
+/>
+
+## Troubleshooting first run
+
+### "Cannot find module 'better-sqlite3'"
+
+This happens with SQLite connections. `better-sqlite3` is a native Node add-on that needs to be compiled for your platform. Fix:
+
+```bash
+# Install build tools (macOS)
+xcode-select --install
+
+# Install build tools (Ubuntu/Debian)
+sudo apt-get install python3 make g++
+
+# Then re-run dbpeek — it will recompile the add-on
+npx dbpeek sqlite:///path/to/file.db
+```
+
+### Port conflicts
+
+dbpeek scans ports 3000–3999 in order and uses the first available one. If all are taken (unlikely), it exits with an error listing the range. Free up a port or wait for a process to finish.
+
+### Browser doesn't open
+
+Some environments (SSH sessions, WSL without a display) can't open a browser automatically. Copy the URL printed in the terminal and open it manually:
+
+```
+Server running at http://localhost:3421/app
+```
+
+### Slow first run
+
+The initial `npx` invocation downloads ~5 MB. Subsequent runs use the npm cache and start in under a second.

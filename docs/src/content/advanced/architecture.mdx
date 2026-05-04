@@ -1,0 +1,140 @@
+# Architecture
+
+This page is for contributors who want to understand the codebase in depth: how the security model works, how query cancellation is implemented, what lives in the Zustand store, and how to extend dbpeek with a new database dialect.
+
+For setup and contribution workflow, see the [Contributing](/advanced/contributing) page.
+
+---
+
+## Directory structure
+
+```
+dbpeek/
+├── src/
+│   ├── cli/
+│   │   ├── index.ts          CLI entry: parse argv, start server, open browser
+│   │   └── parseUrl.ts       Parse "postgres://user:pass@host:5432/db" → ConnectionConfig
+│   ├── server/
+│   │   ├── db.ts             Knex factory, testConnection, destroyConnection
+│   │   ├── index.ts          Express app factory (createApp / createServer)
+│   │   ├── permissions.ts    *** SECURITY BOUNDARY *** validateQuery + splitStatements
+│   │   └── routes/
+│   │       ├── index.ts      Mount all routers onto the Express app
+│   │       ├── status.ts     GET /api/status — connection metadata
+│   │       ├── query/
+│   │       │   ├── index.ts  POST /api/query + POST /api/query/cancel
+│   │       │   ├── execute.ts
+│   │       │   ├── normalize.ts
+│   │       │   ├── errors.ts
+│   │       │   └── pid.ts    Get backend PID for cancel support (per dialect)
+│   │       ├── schema/
+│   │       │   └── handlers/ Per-dialect handlers (postgres, mysql, sqlite, mssql)
+│   │       ├── explain/
+│   │       │   └── parsers/  Per-dialect EXPLAIN output parsers
+│   │       ├── data/
+│   │       │   └── index.ts  PUT /api/data/:table — inline cell editing
+│   │       └── import/
+│   │           └── index.ts  POST /api/import — bulk CSV/JSON insert
+│   ├── client/
+│   │   ├── App.tsx           Root layout: sidebar + editor + results + history panel
+│   │   ├── stores/
+│   │   │   ├── app.ts        Zustand store: tabs, history, ERD, schema
+│   │   │   └── theme.ts      Dark/light theme toggle
+│   │   ├── hooks/
+│   │   │   ├── useQuery.ts   POST /api/query + cancel
+│   │   │   ├── useExplain.ts POST /api/explain
+│   │   │   ├── useSchema.ts  GET /api/schema (cached by TanStack Query)
+│   │   │   └── useCellEdit.ts PUT /api/data/:table
+│   │   └── components/
+│   │       ├── Editor/       CodeMirror 6 SQL editor + tab bar
+│   │       ├── Results/      DataGrid, ExplainView, ChartView, ValueViewer, ExportMenu
+│   │       ├── Schema/       SchemaTree, DdlViewer, ErdView, ColumnStats
+│   │       ├── History/      QueryHistoryPanel
+│   │       ├── Import/       ImportPreview + CSV/JSON file parser
+│   │       └── Diff/         SchemaDiff + DataDiff modals
+│   └── types/
+│       └── connection.ts     Dialect, PermissionMode, ConnectionConfig
+├── tests/
+│   ├── server/               Vitest: permissions, query, schema, explain, import
+│   ├── client/               Vitest: formatSql, export, parseSelectTable
+│   └── e2e/                  Playwright: full-browser feature tests
+├── tsconfig.json
+├── tsup.config.ts            Bundle CLI + server to dist/ (CJS output)
+└── vite.config.ts            Bundle React client to dist/client/
+```
+
+---
+
+## Security model
+
+`src/server/permissions.ts` is the most important file in the project. Every SQL string submitted through the browser must pass `validateQuery(sql, mode)` before it ever reaches `knex.raw()`.
+
+### Validation pipeline
+
+1. **Split** — `splitStatements(sql)` tokenizes the input into individual statements using a hand-written SQL-aware lexer that respects string literals, quoted identifiers, and comments.
+
+2. **Classify** — `getStatementType(statement)` strips leading whitespace and comments, then extracts the first keyword (normalized to uppercase).
+
+3. **Compare** — the keyword is matched against three sets and checked against the current mode:
+
+| Mode | READ keywords | WRITE keywords | DDL/DCL/procedural |
+|------|:---:|:---:|:---:|
+| `readonly` (default) | ✅ | ❌ | ❌ |
+| `write` | ✅ | ✅ | ❌ |
+| `full` | ✅ | ✅ | ✅ |
+
+4. **Reject the whole batch** — if any statement in a multi-statement input fails, the entire batch is rejected.
+
+### Why the mode cannot be changed from the browser
+
+The permission mode is captured as a closure variable inside `registerRoutes()` when the CLI starts. No HTTP endpoint exists to read or write it. A compromised browser tab can only call the routes that already exist — and none of them mutate the mode.
+
+---
+
+## Query cancellation
+
+When the user clicks the Cancel button (or presses `Cmd/Ctrl+.`):
+
+1. `POST /api/query` acquires a **pinned** connection from the Knex pool.
+2. `getConnectionPid()` runs on that pinned connection to retrieve the backend PID.
+3. The PID is stored in a closure variable `activePid`.
+4. The user's SQL executes on the same pinned connection.
+5. Concurrently, the browser sends `POST /api/query/cancel`.
+6. The cancel handler reads `activePid` and issues the kill command on a **different** connection:
+   - Postgres: `SELECT pg_cancel_backend($pid)`
+   - MySQL: `KILL QUERY $pid`
+   - MSSQL: `KILL $spid`
+   - SQLite: returns `null` (synchronous; cancellation is not supported)
+7. The database interrupts the running query.
+
+The critical invariant is that the PID query and the user query run on the **same** pinned connection.
+
+---
+
+## Multi-tab state
+
+All tab state lives in Zustand (`src/client/stores/app.ts`). Switching tabs is zero-latency — the store holds the previous result with no re-fetch required.
+
+The CodeMirror editor is a **single persistent instance** that hot-swaps its document via the `tabId` prop. Using React's `key=` would destroy and recreate the `EditorView` on every tab switch, causing a flash. The single-instance approach avoids this.
+
+---
+
+## CORS policy
+
+The Express server only accepts requests from `localhost:*` and `127.0.0.1:*` origins. This prevents a remote webpage from calling the API if the user has dbpeek running locally.
+
+---
+
+## Adding a new database dialect
+
+The files to update are:
+
+1. `src/types/connection.ts` — add the new string to the `Dialect` union and `DEFAULT_PORTS`.
+2. `src/server/db.ts` — add the dialect → knex client mapping.
+3. `src/cli/index.ts` — add the new value to the `valid` array inside `parseDialect`.
+4. `src/server/routes/schema/handlers/<dialect>.ts` — implement the schema query.
+5. `src/server/routes/explain/parsers/<dialect>.ts` — implement the EXPLAIN output parser.
+6. `src/server/routes/query/pid.ts` — add the PID query (or return `null`).
+7. `tests/server/` — add tests for the new dialect.
+
+TypeScript's exhaustiveness checking will flag every `Record<Dialect, ...>` and exhaustive `switch` that is missing the new value — follow the compile errors as a checklist.

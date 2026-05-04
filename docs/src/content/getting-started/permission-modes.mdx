@@ -1,0 +1,108 @@
+---
+title: "Permission modes"
+description: "dbpeek's three permission modes — read-only, write, and full — control what SQL statements are allowed in a session."
+category: "Getting started"
+---
+
+# Permission modes
+
+dbpeek enforces a permission mode for every session. The mode is set at startup via a CLI flag and cannot be changed from the browser.
+
+## Overview
+
+| Mode | Flag | Allowed operations |
+|------|------|--------------------|
+| Read-only | _(default)_ | SELECT, EXPLAIN, SHOW, DESCRIBE, PRAGMA, WITH (CTE), VALUES |
+| Write | `--write` | Read-only + INSERT, UPDATE, DELETE, REPLACE, MERGE, UPSERT |
+| Full | `--full` | Write + CREATE, DROP, ALTER, TRUNCATE, GRANT, REVOKE, EXEC, CALL, EXECUTE |
+
+## Read-only mode (default)
+
+<ScopeBadge mode="read-only" />
+
+No flag required. This is the default when you run `npx dbpeek <connection-string>`.
+
+**Allowed:** `SELECT`, `WITH` (CTEs), `SHOW`, `DESCRIBE`, `EXPLAIN`, `EXPLAIN ANALYZE`, `PRAGMA`, `VALUES`
+
+**Blocked:** `INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`, `TRUNCATE`, `GRANT`, `REVOKE`, `EXEC`, `CALL`, and all other write operations.
+
+Use read-only mode when:
+- Inspecting a production database
+- Sharing a dbpeek session with a teammate who should not modify data
+- Auditing a schema without risk of accidental changes
+
+## Write mode
+
+<ScopeBadge mode="write" />
+
+```bash
+npx dbpeek postgres://... --write
+```
+
+**Allowed:** Everything in read-only mode, plus: `INSERT`, `UPDATE`, `DELETE`, `REPLACE`, `MERGE`, `UPSERT`
+
+**Blocked:** `CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `GRANT`, `REVOKE`, `EXEC`, `CALL`
+
+Use write mode when:
+- Importing data into an existing table
+- Fixing individual records directly
+- Running cleanup `DELETE` queries
+
+## Full mode
+
+<ScopeBadge mode="full" />
+
+```bash
+npx dbpeek postgres://... --full
+```
+
+**Allowed:** Everything in write mode, plus: `CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `GRANT`, `REVOKE`, `EXEC`, `CALL`, `EXECUTE`
+
+Use full mode when:
+- Running migrations manually
+- Making schema changes (adding columns, creating indexes)
+- Executing stored procedures
+
+<WarningCallout>
+Full mode allows destructive DDL statements like DROP TABLE and TRUNCATE. Use it only when you need to make schema changes, and prefer a database user with limited privileges even in full mode.
+</WarningCallout>
+
+## How the permission check works
+
+The check happens in `src/server/permissions.ts` before any query reaches the database driver. The flow is:
+
+1. The browser sends a query to `POST /api/query`
+2. The server parses the SQL into a statement list
+3. Each statement is classified by its leading keyword
+4. If any statement is not permitted by the current mode, the **entire batch is rejected** with a 403 response and an error message identifying the blocked statement
+5. Only if all statements pass does the server forward the query to the database driver
+
+The mode value is captured as a closure variable when the Express server initializes. There is no HTTP endpoint that can change it — a browser cannot escalate its own permissions.
+
+## Multi-statement batches
+
+If you run multiple statements separated by semicolons, all of them must be permitted:
+
+```sql
+-- In read-only mode, this batch is rejected because DELETE is not allowed
+SELECT * FROM users WHERE active = false;
+DELETE FROM users WHERE active = false;
+```
+
+The entire batch is blocked, even though the `SELECT` would be permitted on its own.
+
+## Database-level isolation
+
+<WarningCallout>
+Permission modes are enforced at the application layer, not at the database layer. A determined user with access to the process could bypass them. For stronger isolation — especially in production — use a read-only database user.
+</WarningCallout>
+
+```sql
+-- Create a read-only Postgres user and use that connection string with dbpeek
+CREATE USER dbpeek_reader WITH PASSWORD 'secret';
+GRANT CONNECT ON DATABASE mydb TO dbpeek_reader;
+GRANT USAGE ON SCHEMA public TO dbpeek_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO dbpeek_reader;
+```
+
+This gives you database-enforced read-only access regardless of which mode dbpeek is started with.

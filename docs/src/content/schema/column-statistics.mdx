@@ -1,0 +1,89 @@
+---
+title: "Column statistics"
+description: "Click any column in the schema explorer to see distinct count, null percentage, min/max, and top values — computed on demand."
+category: "Schema browsing"
+---
+
+# Column statistics
+
+Click any column name in the schema explorer tree to open the column statistics panel. The panel shows aggregated statistics for that column, computed by running a single query against the live table.
+
+![Column statistics panel for a text column](/docs/screenshots/column-statistics.png)
+
+## Statistics by column type
+
+### All columns
+
+| Stat | Description |
+|------|-------------|
+| **Distinct count** | `COUNT(DISTINCT col)` — exact count of unique non-null values |
+| **Null %** | Percentage of rows where the column is NULL |
+| **Total rows** | `COUNT(*)` for the table (used to compute null %) |
+
+### Numeric columns
+
+Additional stats for `INTEGER`, `BIGINT`, `NUMERIC`, `FLOAT`, `DECIMAL`, and similar types:
+
+| Stat | Description |
+|------|-------------|
+| **Min** | `MIN(col)` |
+| **Max** | `MAX(col)` |
+| **Avg** | `AVG(col)` rounded to 4 decimal places |
+| **Stddev** | `STDDEV(col)` (or `STDEV` for MSSQL) |
+
+### Text columns
+
+For `VARCHAR`, `TEXT`, `CHAR`, and similar types, the top 10 most frequent values are shown with their counts:
+
+```
+Value           Count
+─────────────────────
+'active'         8,421
+'pending'        2,103
+'cancelled'        847
+'refunded'         234
+...
+```
+
+### Date and timestamp columns
+
+| Stat | Description |
+|------|-------------|
+| **Min date** | Earliest value in the column |
+| **Max date** | Most recent value in the column |
+| **Range** | Human-readable span: "3 years, 4 months" |
+
+## How the query works
+
+dbpeek runs a single aggregation query per column. For a text column, it looks like:
+
+```sql
+SELECT
+  COUNT(DISTINCT status) AS distinct_count,
+  SUM(CASE WHEN status IS NULL THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS null_pct,
+  COUNT(*) AS total_rows
+FROM orders;
+```
+
+The top-values query is a separate `GROUP BY`:
+
+```sql
+SELECT status, COUNT(*) AS cnt
+FROM orders
+GROUP BY status
+ORDER BY cnt DESC
+LIMIT 10;
+```
+
+Both queries are run in sequence on demand. They are not pre-computed at schema load time.
+
+## Caching
+
+Results are cached per column for the duration of the session. Re-clicking the same column returns the cached result instantly. To refresh (e.g., after inserting new rows), hold <Kbd>⌥</Kbd> and click the column name — this bypasses the cache and re-runs the queries.
+
+## Practical uses
+
+- **Before writing a GROUP BY** — check distinct count to decide if the column is a good grouping key
+- **Before adding an index** — check null % and distinct count to evaluate index selectivity
+- **Data quality checks** — find unexpected nulls or an unexpectedly small distinct count on a column that should be unique
+- **Date range awareness** — see the span of data before writing date-range filters

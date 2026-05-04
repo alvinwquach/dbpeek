@@ -1,0 +1,48 @@
+---
+title: "DDL viewer"
+description: "View the CREATE TABLE DDL for any table in dbpeek — right-click a table in the schema explorer and choose Show DDL."
+category: "Schema browsing"
+---
+
+# DDL viewer
+
+The DDL viewer shows the `CREATE TABLE` statement for any table in your schema. Open it by right-clicking a table in the schema explorer and choosing **Show DDL**.
+
+The statement opens in a read-only modal with SQL syntax highlighting and a **Copy** button.
+
+![DDL viewer modal showing a CREATE TABLE statement](/docs/screenshots/ddl-viewer.png)
+
+## What's included
+
+The DDL includes:
+
+- Column definitions: name, data type, length/precision, `NOT NULL`, `DEFAULT` values
+- Primary key constraint
+- Unique constraints
+- Check constraints
+- Foreign key references
+- Index definitions (as separate `CREATE INDEX` statements below the table)
+
+## How DDL is retrieved per dialect
+
+<DialectTabs
+  postgres={`-- PostgreSQL reconstructs DDL from information_schema and pg_catalog.\n-- For tables with the pg_get_tabledef extension installed, that is used directly.\n-- Otherwise, columns, constraints, and indexes are queried separately\n-- and assembled into a formatted CREATE TABLE statement.\n\n-- Indexes are retrieved with:\nSELECT indexdef FROM pg_indexes WHERE tablename = 'users';`}
+  mysql={`-- MySQL uses the native SHOW CREATE TABLE command,\n-- which returns the exact DDL as stored by the engine.\nSHOW CREATE TABLE users;`}
+  sqlite={`-- SQLite stores the original CREATE TABLE statement in sqlite_master.\nSELECT sql\nFROM sqlite_master\nWHERE type = 'table'\n  AND name = 'users';`}
+  mssql={`-- MSSQL has no built-in DDL generation command.\n-- dbpeek reconstructs the DDL from system catalog views:\n-- sys.columns, sys.types, sys.indexes,\n-- sys.foreign_keys, sys.foreign_key_columns,\n-- sys.check_constraints, sys.default_constraints`}
+/>
+
+## Syntax highlighting
+
+The DDL is rendered using the same CodeMirror SQL highlighter as the editor. Keywords like `CREATE`, `TABLE`, `PRIMARY KEY`, and `REFERENCES` are highlighted in the same color scheme.
+
+## Copying the DDL
+
+Click the **Copy** button in the modal header to copy the full DDL statement to your clipboard. The copied text is the raw SQL — not the highlighted HTML.
+
+## Common uses
+
+- **Understanding a table you didn't create** — see exactly what constraints and defaults were set without writing any queries
+- **Migrating a table to another database** — copy the DDL and adapt it to the target dialect
+- **Documentation** — paste the DDL into a schema reference document
+- **Debugging foreign key issues** — see all `REFERENCES` clauses at once to trace the relationship graph

@@ -1,0 +1,65 @@
+---
+title: "Smart empty state"
+description: "Schema-aware query suggestions shown when a new tab has no results yet."
+category: "Query analysis"
+---
+
+# Smart empty state
+
+When you open a new tab and haven't run any query yet, the results area doesn't show a blank panel. Instead, dbpeek inspects your schema and suggests four exploratory queries tailored to your specific database.
+
+## The four suggestions
+
+Each suggestion targets a different type of interesting data, chosen by analyzing your schema metadata:
+
+### 1. Largest table
+
+```sql
+SELECT * FROM {biggest_table} LIMIT 100
+```
+
+dbpeek finds the table with the highest estimated row count (from the database's statistics tables) and suggests browsing it. Good starting point for understanding what data the database contains.
+
+### 2. Most-joined table
+
+```sql
+SELECT * FROM {join_hub} LIMIT 100
+```
+
+dbpeek finds the table that is referenced by the most foreign keys — typically the central entity in your schema (often `users`, `accounts`, `orders`, or similar). Understanding this table usually unlocks the most about the application's data model.
+
+### 3. Recent data
+
+```sql
+SELECT * FROM {table_with_timestamp}
+ORDER BY {timestamp_col} DESC
+LIMIT 50
+```
+
+dbpeek scans column names and types to find the most "recently-updated-looking" timestamp column across all tables — columns named `created_at`, `updated_at`, `timestamp`, `event_time`, and similar patterns rank highly. Returns the 50 most recent rows.
+
+### 4. High-cardinality text
+
+```sql
+SELECT {text_col}, COUNT(*)
+FROM {table}
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 20
+```
+
+dbpeek finds a text or varchar column with high cardinality (many distinct values relative to row count) and suggests a frequency analysis. Useful for spotting categories, statuses, or enum-like columns worth exploring.
+
+## Using suggestions
+
+Click any suggestion card to load the generated SQL into the editor. The query is loaded but **not automatically run** — you can review and modify it before executing.
+
+## When suggestions update
+
+The suggestions are computed once when the tab is first created, using whatever schema metadata is available at that moment. Opening a new tab re-evaluates the schema and may produce different suggestions if the schema has changed.
+
+If the schema hasn't finished loading yet (it loads in the background after connection), the suggestions panel shows a loading state and populates once schema introspection completes.
+
+## Schema requirements
+
+All four suggestions require the schema to be loaded. If your user account lacks permission to read system catalog tables (e.g., `information_schema`), the suggestions cannot be generated and the panel shows a standard empty state instead.

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      viewport: width=device-width prevents mobile browsers from scaling down
+      the docs layout. initial-scale=1 ensures 1:1 pixel mapping on retina.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Primary meta -->
+    <title>dbpeek docs</title>
+    <meta
+      name="description"
+      content="Documentation for dbpeek — a privacy-first SQL client that runs locally and never sends your data to the cloud."
+    />
+
+    <!-- Open Graph — controls how the page appears when shared on Slack, Twitter, etc. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="dbpeek docs" />
+    <meta
+      property="og:description"
+      content="Documentation for dbpeek — a privacy-first SQL client that runs locally and never sends your data to the cloud."
+    />
+    <meta property="og:url" content="https://dbpeek.com/docs" />
+
+    <!-- Twitter card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="dbpeek docs" />
+    <meta
+      name="twitter:description"
+      content="Documentation for dbpeek — a privacy-first SQL client that runs locally and never sends your data to the cloud."
+    />
+
+    <!--
+      theme-color: tells mobile browsers to paint the address bar with the
+      dbpeek dark background color, matching the app aesthetic.
+    -->
+    <meta name="theme-color" content="#0a0a0f" />
+
+    <!--
+      Favicon: relative path so it works in both Vite dev (served from /) and
+      production (served from /docs/). Vite rewrites asset paths in the built
+      HTML automatically based on base: '/docs/'.
+    -->
+    <link rel="icon" type="image/png" href="./favicon.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.svg" />
+
+    <!--
+      JetBrains Mono: the mono font used for code blocks throughout the docs.
+      We load only weight 400 and 500 — enough for regular code and bold
+      keywords. We skip Inter and use system-ui for prose (no extra download).
+      preconnect reduces DNS + TLS handshake latency for the Google Fonts CDN.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!--
+      Apply persisted theme synchronously before React mounts to avoid a flash
+      of light-on-dark or dark-on-light. Mirrors the logic in useTheme.ts.
+      Defaults to 'dark' for new visitors — matching the dbpeek brand.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('dbpeek-docs-theme');
+          var theme = (stored === 'light' || stored === 'dark') ? stored : 'dark';
+          if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <!--
+      #root is the React mount point. The div is empty — React injects all
+      DOM after createRoot().render() runs in main.tsx.
+    -->
+    <div id="root"></div>
+
+    <!--
+      Entry point: Vite resolves ./src/main.tsx relative to this index.html.
+      In dev, Vite serves it directly. In production, Vite replaces this tag
+      with a hashed bundle URL prefixed with the base path (/docs/).
+    -->
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

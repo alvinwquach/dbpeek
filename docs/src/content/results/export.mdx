@@ -1,0 +1,87 @@
+---
+title: "Export (CSV / JSON / Excel)"
+description: "Export query results from dbpeek to CSV, JSON, or Excel — respects active client-side filters and preserves column types."
+category: "Results"
+---
+
+# Export (CSV / JSON / Excel)
+
+Click the **download icon** in the results toolbar to open the export menu. Choose a format and the file downloads immediately to your browser's default download location.
+
+## Formats
+
+### CSV
+
+- Encoding: UTF-8 with BOM (for compatibility with Excel on Windows)
+- Standard: RFC 4180 compliant
+- Fields containing commas, quotes, or newlines are wrapped in double quotes
+- Embedded double quotes are escaped as `""`
+- NULL values become empty strings (no representation in CSV for null)
+- First row is the header row (column names)
+- Filename: `query-2024-01-15-14-30.csv`
+
+Example:
+
+```csv
+id,name,email,notes
+1,Alex Chen,alex@example.com,"Works on ""Platform"" team"
+2,Jordan Lee,jo@example.com,
+3,Sam Park,sam@example.com,"Manager, West region"
+```
+
+### JSON
+
+- Format: array of objects
+- Types are preserved: numbers stay numbers, booleans stay booleans, NULL becomes `null`
+- Date/timestamp columns become ISO 8601 strings: `"2024-01-15T14:30:00.000Z"`
+- Filename: `query-2024-01-15-14-30.json`
+
+Example:
+
+```json
+[
+  {"id": 1, "name": "Alex Chen", "active": true, "score": 98.5, "joined": "2024-01-15T00:00:00.000Z"},
+  {"id": 2, "name": "Jordan Lee", "active": false, "score": null, "joined": "2023-11-01T00:00:00.000Z"}
+]
+```
+
+### Excel (.xlsx)
+
+Built with the `xlsx` library (SheetJS):
+
+- Numbers stay as numeric cells (not text-formatted numbers)
+- Booleans become Excel `TRUE`/`FALSE`
+- Dates become Excel date values (displayed according to the cell format, not as ISO strings)
+- NULL becomes an empty cell
+- Column headers in row 1 with bold formatting
+- Filename: `query-2024-01-15-14-30.xlsx`
+
+## What gets exported
+
+The export contains the **currently visible rows** — after any active client-side sorts and filters. If you have filtered the results to 23 of 1,204 rows, the export contains 23 rows in the current sort order.
+
+To export all rows regardless of filters, click **Clear all filters** in the results toolbar before exporting.
+
+## File naming
+
+Export filenames use the format: `query-YYYY-MM-DD-HH-mm.{ext}` — the timestamp is the local time when you clicked export.
+
+## Large exports
+
+All three formats are generated in the browser from the in-memory result set. Performance characteristics:
+
+| Format | 10K rows | 100K rows | 1M rows |
+|--------|----------|-----------|---------|
+| CSV | < 1s | ~2s | ~15s |
+| JSON | < 1s | ~3s | ~25s |
+| Excel | ~1s | ~8s | not recommended |
+
+For very large result sets, Excel export is slow because SheetJS builds the `.xlsx` file entirely in JavaScript. Use CSV or JSON for large exports.
+
+<WarningCallout>
+Exporting very large result sets (500K+ rows) may cause the browser tab to become unresponsive for several seconds while the file is being generated. For data exports of that scale, consider using your database's native export tools (pg_dump, mysqldump, etc.) instead.
+</WarningCallout>
+
+<PrivacyCallout>
+Exports are generated entirely in the browser. The file never passes through any server or third-party service — it goes directly from browser memory to your local filesystem.
+</PrivacyCallout>

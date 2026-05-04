@@ -1,0 +1,67 @@
+---
+title: "Multi-tab queries"
+description: "Open multiple independent SQL workspaces in the dbpeek editor using tabs, each with its own SQL, results, and history."
+category: "Editor"
+---
+
+# Multi-tab queries
+
+The tab bar above the editor gives each tab its own isolated SQL workspace. Tabs are useful for keeping multiple queries in flight, comparing result sets, or working on different tables without losing your progress.
+
+![Tab bar with three open tabs](/docs/screenshots/multi-tab.png)
+
+## What each tab contains
+
+Every tab maintains its own independent state:
+
+- **SQL text** — the editor content for that tab
+- **Query results** — the last result set from running a query in that tab
+- **View mode** — whether results are showing the grid, chart, or EXPLAIN view
+- **Column sort and filter state** — client-side sorts and filters applied to the result grid
+- **Query history** — the history of queries run in that tab (not shared across tabs)
+
+Switching tabs instantly restores all of this state.
+
+## Tab management shortcuts
+
+| Action | Mac | Windows/Linux |
+|--------|-----|---------------|
+| New tab | <Kbd>⌘</Kbd><Kbd>T</Kbd> | <Kbd>Ctrl</Kbd><Kbd>T</Kbd> |
+| Close current tab | <Kbd>⌘</Kbd><Kbd>W</Kbd> | <Kbd>Ctrl</Kbd><Kbd>W</Kbd> |
+| Switch to tab 1 | <Kbd>⌘</Kbd><Kbd>1</Kbd> | <Kbd>Ctrl</Kbd><Kbd>1</Kbd> |
+| Switch to tab 2–9 | <Kbd>⌘</Kbd><Kbd>2</Kbd>–<Kbd>9</Kbd> | <Kbd>Ctrl</Kbd><Kbd>2</Kbd>–<Kbd>9</Kbd> |
+
+You can also click the **+** button in the tab bar to open a new tab, or click the **×** on any tab to close it. The last remaining tab cannot be closed.
+
+## Tab names
+
+Tabs are named automatically. The default name is derived from the first `FROM` clause in the current SQL:
+
+```sql
+SELECT * FROM orders WHERE total > 100
+-- Tab name: "from orders"
+```
+
+To rename a tab, double-click the tab name. An inline input appears — type your name and press Enter.
+
+## Implementation note: single CodeMirror instance
+
+The editor UI uses a **single CodeMirror instance** that hot-swaps its document state when you switch tabs. This is different from creating and destroying separate editor instances per tab.
+
+The reason: creating a CodeMirror editor has a non-trivial startup cost — it measures fonts, computes line heights, and initializes extension state. Destroying and recreating it on every tab switch would cause a visible flash and potential font rendering artifacts.
+
+Instead, each tab stores a CodeMirror `EditorState` snapshot. When you switch tabs, the editor calls `view.setState(savedState)` to swap in the new document, cursor position, and undo history atomically.
+
+## Tab persistence
+
+Tab state is stored in Zustand (in-memory React state). It is **not** persisted to disk or localStorage.
+
+Closing the browser tab or terminal window loses all tab content. For queries you want to keep between sessions, copy them to a `.sql` file in your project.
+
+## Common use cases
+
+**Comparing two queries** — Run `SELECT COUNT(*) FROM orders` in tab 1 and `SELECT COUNT(*) FROM orders WHERE status = 'completed'` in tab 2. Switch between tabs to compare counts.
+
+**Background queries** — Start a slow aggregation query in tab 2, then switch back to tab 1 to keep writing while it runs. Tab 2's results will be ready when you switch back.
+
+**Table exploration** — Keep your main analytical query in tab 1. Use tab 2 as a scratchpad for quick `SELECT *` previews of tables you're looking up.

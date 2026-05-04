@@ -1,0 +1,45 @@
+# Privacy model
+
+dbpeek is a local-first tool. Understanding what it does — and does not — do with your data is straightforward.
+
+## What stays local
+
+Everything. dbpeek is a Node.js process that runs on your machine. There is no cloud component, no backend server, no analytics pipeline.
+
+- **Query results** — stay in browser memory. They are never sent anywhere.
+- **Database credentials** — passed as a CLI argument or connection URL. They are used to open a connection and are never stored to disk by dbpeek.
+- **Query history** — stored in your browser's `localStorage` for the current session only. dbpeek does not write a history file to disk.
+- **Schema data** — fetched from your database and held in the browser's React state. Not cached to disk.
+
+## What dbpeek does NOT do
+
+- No telemetry or usage analytics
+- No crash reporting
+- No automatic updates that phone home
+- No cloud sync
+- No account or login
+
+## Credential handling
+
+dbpeek accepts credentials only as a CLI argument (connection URL or `--host` / `--user` / `--password` flags). The credentials are:
+
+1. Parsed by `src/cli/parseUrl.ts` into a `ConnectionConfig` object
+2. Used to create a Knex connection pool in `src/server/db.ts`
+3. **Never written to disk** by dbpeek
+
+The Express server that dbpeek starts only listens on `127.0.0.1` (localhost). It cannot be accessed from other machines on the network unless you explicitly port-forward — which is your choice to make.
+
+## Comparison with cloud SQL clients
+
+| Feature | dbpeek | Cloud SQL clients |
+|---------|--------|-------------------|
+| Credentials stored | Never | On vendor servers |
+| Query results | Local only | May transit vendor infrastructure |
+| Telemetry | None | Varies |
+| Air-gap friendly | Yes | No |
+
+For a detailed audit of how other SQL clients store credentials, see [Credential audit](/advanced/credential-audit).
+
+## Verifying the privacy model
+
+dbpeek is open source. You can read the source, run it behind a firewall, and inspect all network traffic with Wireshark. You should see connections only to `127.0.0.1` (the local Express server) and to your database host.

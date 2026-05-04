@@ -1,0 +1,65 @@
+---
+title: "Data modification overview"
+description: "Overview of all data modification features and the permission modes that enable them."
+category: "Data modification"
+---
+
+# Data modification overview
+
+<WarningCallout>All features in this section require `--write` or `--full` mode. The default read-only mode blocks all data modification. Pass the flag explicitly when starting dbpeek — for example, `npx dbpeek postgres://localhost/mydb --write`.</WarningCallout>
+
+dbpeek ships with four data modification features, each gated behind an appropriate permission level.
+
+## Feature overview
+
+<FeatureGrid features={[
+  {
+    title: "Inline cell editing",
+    description: "Double-click any cell in the results grid to edit it in place. dbpeek generates a safe UPDATE statement using the primary key.",
+    badge: "write"
+  },
+  {
+    title: "CSV / JSON import",
+    description: "Drag a CSV or JSON file onto the results panel to import rows into a table. Supports upsert, skip, and error conflict strategies.",
+    badge: "write"
+  },
+  {
+    title: "Table structure editor",
+    description: "Add, remove, rename, and retype columns via a GUI. dbpeek generates the ALTER TABLE statements and previews them before executing.",
+    badge: "full"
+  },
+  {
+    title: "Data diff",
+    description: "Compare two tables or two query results side by side. Color-coded rows show additions, removals, and changes.",
+    badge: "read-only"
+  }
+]} />
+
+## Permission modes
+
+| Mode | Flag | What it allows |
+|------|------|----------------|
+| Read-only | *(default)* | SELECT, EXPLAIN, SHOW |
+| Write | `--write` | All of the above + INSERT, UPDATE, DELETE, REPLACE, MERGE |
+| Full | `--full` | All of the above + CREATE, DROP, ALTER, TRUNCATE, GRANT |
+
+## Safety guarantees
+
+Every modification feature follows the same safety pattern:
+
+1. You initiate the change through the UI
+2. dbpeek generates the SQL that would be executed
+3. A **confirmation dialog** shows the exact SQL before anything runs
+4. You click Execute to apply, or Cancel to discard
+
+All modifications are logged to [query history](/analysis/query-history) with the same timestamp, status, and row-count information as regular queries.
+
+## Transactions
+
+Where possible, dbpeek wraps bulk modifications in a transaction:
+
+- **CSV/JSON import** — all inserts run inside a single transaction. If any row fails, the entire import rolls back.
+- **Table structure editor** — each ALTER TABLE is executed individually (databases generally don't support transactional DDL, except PostgreSQL which does).
+- **Inline editing** — each UPDATE is a single-statement transaction by default.
+
+For PostgreSQL specifically, DDL inside an explicit `BEGIN` / `COMMIT` block is transactional. The table editor takes advantage of this when possible.

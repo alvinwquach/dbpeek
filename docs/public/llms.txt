@@ -1,0 +1,24 @@
+# dbpeek docs — LLM context
+
+dbpeek is a privacy-first SQL client that runs locally from a single npx command.
+No credentials are stored. No data leaves localhost. No telemetry.
+
+## Documentation sections
+
+- Getting started: installation, quickstart, connection strings, permission modes
+- Editor: schema-aware autocomplete, multi-tab, parameterized queries, format SQL, query cancellation
+- Schema browsing: explorer, column statistics, DDL viewer, pin tables, ERD diagrams
+- Results: grid, sorting & filtering, value viewer, copy cell, export, charts
+- Query analysis: EXPLAIN plans, query history, multi-statement, session report, smart empty state
+- Data modification (--write/--full): inline editing, CSV/JSON import, table editor, data diff
+- Reference: CLI flags, keyboard shortcuts, supported databases, troubleshooting, FAQ
+- Advanced: architecture, privacy model, credential audit, contributing
+
+## Key facts
+
+- Run: npx dbpeek <connection-string>
+- Dialects: PostgreSQL, MySQL, SQLite, MSSQL
+- Permission modes: read-only (default), --write, --full
+- License: MIT
+- Repo: https://github.com/alvinwquach/dbpeek
+- Docs: https://dbpeek.com/docs

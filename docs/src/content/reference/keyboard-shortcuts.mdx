@@ -1,0 +1,58 @@
+---
+title: "Keyboard shortcuts"
+description: "Complete keyboard shortcut reference for the editor, tabs, panels, navigation, and results grid."
+category: "Reference"
+---
+
+# Keyboard shortcuts
+
+All shortcuts use <Kbd>⌘</Kbd> (Command) on macOS. On Windows and Linux, substitute <Kbd>Ctrl</Kbd>.
+
+## Editor
+
+| Action | Shortcut |
+|--------|----------|
+| Run query | <KeyboardShortcut keys={['⌘', 'Enter']} /> |
+| Run selected text only | <KeyboardShortcut keys={['⌘', '⇧', 'Enter']} /> |
+| Cancel running query | <KeyboardShortcut keys={['⌘', '.']} /> |
+| Format / prettify SQL | <KeyboardShortcut keys={['⌘', '⇧', 'F']} /> |
+| Open EXPLAIN plan | <KeyboardShortcut keys={['⌘', 'E']} /> |
+| Toggle line comment | <KeyboardShortcut keys={['⌘', '/']} /> |
+
+## Tabs
+
+| Action | Shortcut |
+|--------|----------|
+| New tab | <KeyboardShortcut keys={['⌘', 'T']} /> |
+| Close current tab | <KeyboardShortcut keys={['⌘', 'W']} /> |
+| Switch to tab 1–9 | <KeyboardShortcut keys={['⌘', '1']} /> through <KeyboardShortcut keys={['⌘', '9']} /> |
+
+## Panels
+
+| Action | Shortcut |
+|--------|----------|
+| Open / close query history | <KeyboardShortcut keys={['⌘', 'H']} /> |
+| Session report / disconnect | <KeyboardShortcut keys={['⌘', 'D']} /> |
+| Toggle schema sidebar | <KeyboardShortcut keys={['⌘', 'B']} /> |
+
+## Navigation
+
+| Action | Shortcut |
+|--------|----------|
+| Open command palette | <KeyboardShortcut keys={['⌘', 'K']} /> |
+| Trigger autocomplete | <KeyboardShortcut keys={['⌘', 'Space']} /> |
+
+## Results grid
+
+| Action | Shortcut |
+|--------|----------|
+| Copy selected cell value | <KeyboardShortcut keys={['⌘', 'C']} /> |
+| Select all visible rows | <KeyboardShortcut keys={['⌘', 'A']} /> |
+| Navigate between cells | <KeyboardShortcut keys={['↑']} /> <KeyboardShortcut keys={['↓']} /> <KeyboardShortcut keys={['←']} /> <KeyboardShortcut keys={['→']} /> |
+
+## Tips
+
+- Use <KeyboardShortcut keys={['⌘', '⇧', 'Enter']} /> to run only the highlighted portion of a script — useful when a file contains many statements and you want to test one section.
+- The command palette (<KeyboardShortcut keys={['⌘', 'K']} />) accepts fuzzy search for any table or column in your schema, and any dbpeek action. It's the fastest way to navigate a large schema without using the sidebar.
+- In the results grid, press <KeyboardShortcut keys={['⌘', 'A']} /> then <KeyboardShortcut keys={['⌘', 'C']} /> to copy all visible rows as tab-separated values, ready to paste into a spreadsheet.
+- Tab switching with <KeyboardShortcut keys={['⌘', '1']} />–<KeyboardShortcut keys={['⌘', '9']} /> counts from the left. <KeyboardShortcut keys={['⌘', '9']} /> always jumps to the last tab regardless of how many are open, consistent with browser tab behavior.

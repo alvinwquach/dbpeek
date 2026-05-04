@@ -1,0 +1,104 @@
+---
+title: "Quickstart"
+description: "A 90-second walkthrough of every major dbpeek feature from connection to export."
+category: "Getting started"
+---
+
+# Quickstart
+
+This walkthrough covers the full dbpeek workflow from connection to export. It takes about 90 seconds.
+
+## Step 1 — Connect
+
+Run the command for your database:
+
+```bash
+npx dbpeek postgres://user:pass@localhost:5432/mydb
+```
+
+The terminal prints the server URL and opens your browser automatically. You'll see the main UI within a couple of seconds.
+
+![dbpeek main UI after connection](/docs/screenshots/main-ui.png)
+
+## Step 2 — Browse the schema
+
+The left sidebar lists every table in your database. Each table shows a column count badge. Click the arrow next to a table name to expand it and see the columns with their types.
+
+Use the search input at the top of the sidebar to filter tables by name or by column name.
+
+![Schema sidebar showing expanded table with columns](/docs/screenshots/schema-sidebar.png)
+
+## Step 3 — Preview a table
+
+Click any table name to load its first 100 rows into the results panel. This runs:
+
+```sql
+SELECT * FROM users LIMIT 100
+```
+
+No need to type anything — it's a one-click preview.
+
+## Step 4 — Write a query
+
+Click the editor panel (or press <Kbd>⌘</Kbd><Kbd>L</Kbd> to focus it). Start typing SQL. Autocomplete suggests table names after `FROM` and column names after `SELECT`.
+
+```sql
+SELECT
+  status,
+  COUNT(*) AS order_count,
+  SUM(total_cents) / 100.0 AS revenue
+FROM orders
+WHERE created_at >= NOW() - INTERVAL '30 days'
+GROUP BY status
+ORDER BY revenue DESC;
+```
+
+## Step 5 — Run the query
+
+Press <Kbd>⌘</Kbd><Kbd>↵</Kbd> (Cmd+Enter) or click the **Run** button in the toolbar. Results appear in the panel below the editor.
+
+![Query results in the grid view](/docs/screenshots/results-grid.png)
+
+## Step 6 — Explore results
+
+The results grid supports:
+
+- **Sort**: click any column header to cycle ascending → descending → unsorted
+- **Filter**: click the filter icon next to a column header and type to filter rows client-side
+- **Full value**: click any cell to open the value viewer for long text, JSON, or binary data
+
+## Step 7 — Switch to chart view
+
+Click the **Chart** icon in the results toolbar (the bar-chart icon). dbpeek auto-detects the chart type based on your column types — a date column plus a numeric column becomes a line chart; a category column plus a numeric column becomes a bar chart.
+
+Use the axis pickers to override which columns map to X and Y.
+
+![Auto-generated bar chart from query results](/docs/screenshots/chart-view.png)
+
+## Step 8 — View the EXPLAIN plan
+
+Press <Kbd>⌘</Kbd><Kbd>E</Kbd> or click the lightning bolt icon in the toolbar to run `EXPLAIN ANALYZE` on the current query. The plan is shown in a formatted tree view alongside the query.
+
+![EXPLAIN plan panel](/docs/screenshots/explain-plan.png)
+
+## Step 9 — Export results
+
+Click the download icon in the results toolbar. Choose from:
+
+- **CSV** — UTF-8, RFC 4180 compliant
+- **JSON** — array of objects with preserved types
+- **Excel (.xlsx)** — numbers stay numbers, dates become Excel date values
+
+The export contains whatever rows are currently visible (after any client-side filters).
+
+## Step 10 — Disconnect
+
+Press <Kbd>⌘</Kbd><Kbd>D</Kbd> or close the terminal window. You'll see a session summary: queries run, tables browsed, total session time. Once the terminal exits, the server stops and nothing is saved.
+
+---
+
+**Next steps:**
+
+- [Connection strings →](/getting-started/connection-strings) — format reference for all four dialects
+- [Permission modes →](/getting-started/permission-modes) — control what SQL is allowed
+- [Editor overview →](/editor/overview) — full editor feature reference

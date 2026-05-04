@@ -1,0 +1,68 @@
+---
+title: "Data diff"
+description: "Compare two tables or two query results to visualize row-level additions, removals, and changes."
+category: "Data modification"
+---
+
+# Data diff
+
+<ScopeBadge mode="read-only" />
+
+The data diff view compares two tables — or the results of two queries — and shows you exactly what is added, removed, or changed. Viewing a diff is read-only. Applying changes from the diff requires `--write` mode.
+
+## Opening the diff view
+
+Click the **Diff** icon in the toolbar. A dialog prompts you to choose two sources to compare.
+
+## Comparison modes
+
+### Table vs table
+
+Select two tables from your schema. You can compare:
+
+- The same table in two different schemas (e.g., `staging.users` vs `production.users`)
+- Any two tables that share a common join key
+
+dbpeek runs `SELECT * FROM table_a` and `SELECT * FROM table_b` under the hood and computes the diff client-side.
+
+### Query vs query
+
+Write two arbitrary SELECT statements. The diff is computed from whatever those queries return. This is useful for comparing aggregations, filtered subsets, or the output of two different joins.
+
+## Color coding
+
+| Color | Meaning |
+|-------|---------|
+| **Green** | Row exists in the right source but not the left (added) |
+| **Red** | Row exists in the left source but not the right (removed) |
+| **Amber** | Row exists in both, but one or more column values differ (changed) |
+
+For amber (changed) rows, the specific columns with differing values are highlighted within the row so you can spot the difference immediately.
+
+## Join key
+
+Rows are matched by **primary key** by default. If the table has no primary key, or if you want to match on a different column, use the **Join key** dropdown to select any column or combination of columns.
+
+Getting the join key right is the most important step — an incorrect join key will produce misleading results (e.g., showing all rows as added/removed when they're actually the same rows with a different ID column selected).
+
+## Practical uses
+
+**Staging vs production comparison** — Verify that your staging environment has the reference data you expect before deploying.
+
+**Before / after a migration** — Take a snapshot of affected rows before running a migration, then diff against the post-migration state. This works best with the query vs query mode.
+
+**Comparing two aggregation queries** — Run two GROUP BY queries with different filter conditions and diff their outputs to see which groups appear in one but not the other.
+
+## Performance and row limits
+
+The diff is computed **client-side** from the fetched result sets. For large tables, this can be slow and memory-intensive. If you're diffing large tables, add a LIMIT or WHERE clause to each query to keep the result sets manageable:
+
+```sql
+-- Left side
+SELECT * FROM orders WHERE created_at >= '2024-01-01' LIMIT 5000;
+
+-- Right side
+SELECT * FROM orders_archive WHERE created_at >= '2024-01-01' LIMIT 5000;
+```
+
+As a general guideline, result sets under 10,000 rows each diff instantly. Above 50,000 rows per side, you may notice a delay while the diff algorithm runs in a Web Worker.

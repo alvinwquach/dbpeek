@@ -1,0 +1,51 @@
+---
+title: "Multi-statement execution"
+description: "Run SQL scripts with multiple statements in sequence, with per-statement progress and error isolation."
+category: "Query analysis"
+---
+
+# Multi-statement execution
+
+dbpeek can run a SQL script containing multiple statements in a single action. Paste your script into the editor — statements separated by semicolons — and press <KeyboardShortcut keys={['⌘', 'Enter']} /> or click **Run**.
+
+## How execution works
+
+Each statement runs **sequentially** in the order it appears in the script. While the batch is running, the status bar shows progress:
+
+```
+Statement 2 of 5 — UPDATE — running...
+```
+
+When a statement finishes, its result or row count appears in the results area before the next statement begins. SELECT results are shown as data grids; INSERT, UPDATE, and DELETE statements show an affected-row count.
+
+## Error handling
+
+If a statement fails, **execution stops at that point**. dbpeek shows which statement failed and the error message from the database. Statements that executed successfully before the failure are **not automatically rolled back** — their changes are committed unless you wrapped everything in an explicit transaction.
+
+## Transaction safety
+
+To make a multi-statement script atomic, wrap it in a transaction:
+
+```sql
+BEGIN;
+
+UPDATE orders SET status = 'shipped' WHERE id = 1;
+UPDATE inventory SET quantity = quantity - 1 WHERE sku = 'ABC';
+INSERT INTO audit_log (event, created_at) VALUES ('order_shipped', NOW());
+
+COMMIT;
+```
+
+If any statement inside the transaction fails, the entire block rolls back. If all succeed, COMMIT persists all changes at once.
+
+## Permission enforcement
+
+Before executing any statement in a batch, dbpeek validates **all statements** against the current permission mode. If any single statement would be blocked (for example, a DROP TABLE in read-only mode), the **entire batch is rejected** and nothing executes. This prevents partial execution of a script that contains disallowed operations.
+
+## History entries
+
+Each statement in a batch gets its own entry in [query history](/analysis/query-history). The entries appear in execution order and can be individually loaded back into the editor.
+
+## Canceling a running batch
+
+Press <KeyboardShortcut keys={['⌘', '.']} /> to cancel the currently running statement. Cancellation stops the batch at the current statement. Statements already completed are not rolled back (unless inside an open transaction that you manually roll back).

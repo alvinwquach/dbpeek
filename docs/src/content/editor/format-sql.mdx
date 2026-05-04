@@ -1,0 +1,89 @@
+---
+title: "Format SQL"
+description: "Format and normalize SQL in the dbpeek editor with one keyboard shortcut — uppercases keywords, fixes indentation, and aligns clause boundaries."
+category: "Editor"
+---
+
+# Format SQL
+
+The SQL formatter normalizes your query in place: keyword casing, whitespace, and clause alignment are standardized without touching your logic.
+
+**Keyboard shortcut:** <KeyboardShortcut keys={['⌘', '⇧', 'F']} />
+
+Or click the **Format** button in the editor toolbar.
+
+## What formatting does
+
+**Uppercases SQL keywords**
+
+```sql
+-- Before
+select u.id, u.email, count(o.id) as orders
+from users u
+left join orders o on o.user_id = u.id
+where u.active = true
+group by u.id, u.email
+order by orders desc;
+
+-- After
+SELECT u.id, u.email, COUNT(o.id) AS orders
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.active = TRUE
+GROUP BY u.id, u.email
+ORDER BY orders DESC;
+```
+
+**Normalizes whitespace and indentation**
+
+Removes extra spaces, aligns continuation lines, and ensures consistent indentation:
+
+```sql
+-- Before (messy)
+SELECT id,   name,email   FROM   users   WHERE   id   >   100   AND   active=true;
+
+-- After
+SELECT
+  id,
+  name,
+  email
+FROM users
+WHERE id > 100
+  AND active = TRUE;
+```
+
+**Breaks long queries at clause boundaries**
+
+Queries wider than ~80 characters are split across multiple lines at `SELECT`, `FROM`, `WHERE`, `JOIN`, `GROUP BY`, `ORDER BY`, `HAVING`, and `LIMIT`.
+
+**Aligns JOIN...ON and WHERE conditions**
+
+Multi-condition `WHERE` clauses have their `AND`/`OR` connectors aligned:
+
+```sql
+WHERE u.active = TRUE
+  AND u.plan = 'pro'
+  AND u.created_at >= '2024-01-01'
+```
+
+## What formatting does NOT do
+
+- **Does not reorder clauses** — if you put `WHERE` before `FROM`, the formatter leaves that as-is (it would be a syntax error anyway)
+- **Does not change your logic** — column order, table aliases, and expression structure are preserved
+- **Does not affect comments** — `--` and `/* */` comments are preserved as-is
+- **Does not rename identifiers** — table and column names are left in their original case
+
+## Dialect awareness
+
+The formatter is dialect-aware for keyword differences:
+
+<DialectTabs
+  postgres={`-- LIMIT/OFFSET syntax is preserved\nSELECT * FROM users LIMIT 10 OFFSET 20;`}
+  mysql={`-- LIMIT with comma offset syntax is preserved\nSELECT * FROM users LIMIT 20, 10;`}
+  sqlite={`-- PRAGMA statements are not reformatted (left as-is)\nPRAGMA table_info('users');`}
+  mssql={`-- TOP clause is preserved and not rewritten to LIMIT\nSELECT TOP 10 * FROM users;`}
+/>
+
+## Format on run
+
+Formatting is not applied automatically when you run a query. Use the shortcut explicitly when you want to clean up the SQL. This avoids surprising reformats while you're mid-edit.

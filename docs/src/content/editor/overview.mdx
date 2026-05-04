@@ -1,0 +1,87 @@
+---
+title: "Editor overview"
+description: "Overview of the dbpeek SQL editor — CodeMirror 6, toolbar controls, tab bar, and feature summary."
+category: "Editor"
+---
+
+# Editor overview
+
+The SQL editor is built on [CodeMirror 6](https://codemirror.net/). It is a full-featured code editor configured specifically for SQL authoring against a live database schema.
+
+![SQL editor with autocomplete active](/docs/screenshots/editor-overview.png)
+
+## Core editing features
+
+- **Syntax highlighting** — SQL keywords, identifiers, strings, and comments each have distinct colors using a custom dbpeek dark theme
+- **Bracket matching** — matching parentheses are highlighted when the cursor is adjacent to one
+- **Line numbers** — shown in the gutter; click a line number to select the entire line
+- **Smart indentation** — pressing Enter inside a parenthesized expression indents the new line automatically
+- **Multi-cursor** — hold <Kbd>⌥</Kbd> and click to place additional cursors; edits apply to all cursors simultaneously
+- **Rectangular selection** — hold <Kbd>⌥</Kbd> and drag to select a column of text across multiple lines
+
+## Toolbar
+
+The toolbar sits above the editor and contains:
+
+| Button | Action | Shortcut |
+|--------|--------|----------|
+| **Run** | Execute the current query | <Kbd>⌘</Kbd><Kbd>↵</Kbd> |
+| **Format** | Format and uppercase keywords | <Kbd>⌘</Kbd><Kbd>⇧</Kbd><Kbd>F</Kbd> |
+| **Cancel** | Abort the running query | <Kbd>⌘</Kbd><Kbd>.</Kbd> |
+| **EXPLAIN** | Run EXPLAIN ANALYZE on current query | <Kbd>⌘</Kbd><Kbd>E</Kbd> |
+
+The Cancel button only appears while a query is executing. It is not shown at rest.
+
+## Tab bar
+
+Above the toolbar is the tab bar. Each tab is an independent workspace with its own:
+
+- SQL text
+- Query results and result view mode (grid / chart / explain)
+- Client-side sort and filter state
+- Query history
+
+See [Multi-tab queries →](/editor/multi-tab) for full tab management details.
+
+## Editor feature overview
+
+<FeatureGrid features={[
+  {
+    title: "Schema-aware autocomplete",
+    description: "Table names, column names, and SQL keywords complete as you type. Dot-notation completes columns for a specific table.",
+    href: "/editor/autocomplete"
+  },
+  {
+    title: "Multi-tab queries",
+    description: "Open multiple independent SQL workspaces in tabs. Switch with Cmd+1–9.",
+    href: "/editor/multi-tab"
+  },
+  {
+    title: "Parameterized queries",
+    description: "Use $1 or :name placeholders. A parameter panel appears automatically for filling in values.",
+    href: "/editor/parameterized-queries"
+  },
+  {
+    title: "Format SQL",
+    description: "One shortcut uppercases keywords, normalizes whitespace, and aligns clause boundaries.",
+    href: "/editor/format-sql"
+  },
+  {
+    title: "Query cancellation",
+    description: "Cancel long-running queries with Cmd+Period. Works for all four dialects via dialect-specific kill mechanisms.",
+    href: "/editor/query-cancellation"
+  }
+]} />
+
+## Keyboard reference
+
+| Action | Mac | Windows/Linux |
+|--------|-----|---------------|
+| Run query | <Kbd>⌘</Kbd><Kbd>↵</Kbd> | <Kbd>Ctrl</Kbd><Kbd>↵</Kbd> |
+| Format SQL | <Kbd>⌘</Kbd><Kbd>⇧</Kbd><Kbd>F</Kbd> | <Kbd>Ctrl</Kbd><Kbd>⇧</Kbd><Kbd>F</Kbd> |
+| Cancel query | <Kbd>⌘</Kbd><Kbd>.</Kbd> | <Kbd>Ctrl</Kbd><Kbd>.</Kbd> |
+| EXPLAIN | <Kbd>⌘</Kbd><Kbd>E</Kbd> | <Kbd>Ctrl</Kbd><Kbd>E</Kbd> |
+| Force autocomplete | <Kbd>⌘</Kbd><Kbd>Space</Kbd> | <Kbd>Ctrl</Kbd><Kbd>Space</Kbd> |
+| New tab | <Kbd>⌘</Kbd><Kbd>T</Kbd> | <Kbd>Ctrl</Kbd><Kbd>T</Kbd> |
+| Close tab | <Kbd>⌘</Kbd><Kbd>W</Kbd> | <Kbd>Ctrl</Kbd><Kbd>W</Kbd> |
+| Go to tab N | <Kbd>⌘</Kbd><Kbd>1–9</Kbd> | <Kbd>Ctrl</Kbd><Kbd>1–9</Kbd> |

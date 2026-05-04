@@ -1,0 +1,66 @@
+---
+title: "Schema explorer"
+description: "Navigate your database schema with dbpeek's sidebar tree — tables, columns, types, row counts, and one-click table previews."
+category: "Schema browsing"
+---
+
+# Schema explorer
+
+The left sidebar is the schema explorer. It shows every table in the connected database in a collapsible tree. Schema data is fetched once at connect time from `information_schema` (or the dialect equivalent) and cached for the session.
+
+![Schema explorer sidebar showing table list with expanded columns](/docs/screenshots/schema-explorer.png)
+
+## Column badges
+
+When you expand a table, each column shows its name, data type, and up to three constraint badges:
+
+- **PK** — primary key (blue pill)
+- **FK** — foreign key (amber pill)
+- **IX** — indexed column (muted gray pill)
+
+A column can show multiple badges (e.g., a foreign key that is also indexed shows both FK and IX).
+
+## Row count estimates
+
+Each table name is followed by a row count estimate. These are fetched from database catalog tables for speed — not from a full `COUNT(*)`:
+
+| Dialect | Source |
+|---------|--------|
+| PostgreSQL | `pg_class.reltuples` — updated by ANALYZE, fast but approximate |
+| MySQL | `information_schema.tables.TABLE_ROWS` — approximate for InnoDB |
+| SQLite | `SELECT COUNT(*) FROM {table}` — exact, run on schema load |
+| MSSQL | `sys.dm_db_partition_stats.row_count` — approximate |
+
+For SQLite, counts are exact but may add to schema load time on large databases. For other dialects, estimates can be slightly stale if the table was recently modified without running ANALYZE.
+
+## Search
+
+The search input at the top of the sidebar filters the table list in real time. It matches against:
+
+- **Table names** — `ord` matches `orders`, `order_items`, `backorders`
+- **Column names** — `created` matches any table that has a column containing "created"
+
+Matching is case-insensitive. The filtered view still shows all columns when you expand a matched table.
+
+## One-click table preview
+
+Click any table name to load its first 100 rows into the results panel. This is equivalent to:
+
+```sql
+SELECT * FROM {table_name} LIMIT 100
+```
+
+The query is run immediately — no need to switch to the editor first. This is the fastest way to inspect a table's contents.
+
+## Right-click context menu
+
+Right-clicking a table in the sidebar opens a context menu with:
+
+- **Preview table** — same as clicking the table name
+- **Pin to top** — moves this table to the Pinned section at the top of the sidebar (see [Pin tables →](/schema/pin-tables))
+- **Show DDL** — opens the DDL viewer modal (see [DDL viewer →](/schema/ddl-viewer))
+- **Copy table name** — copies the table identifier to the clipboard
+
+## Refreshing the schema
+
+The schema is cached when dbpeek connects. If you add or drop tables during the session (in `--full` mode), click the **Refresh** icon (circular arrow) at the top of the sidebar. This re-queries `information_schema` and rebuilds the tree and autocomplete source without restarting.

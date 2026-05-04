@@ -1,0 +1,78 @@
+---
+title: "Value viewer"
+description: "Click any grid cell to open the value viewer — full content display for JSON, binary, long text, URLs, and timestamps."
+category: "Results"
+---
+
+# Value viewer
+
+The results grid truncates long cell values for performance. Click any cell to open the value viewer panel, which shows the complete value formatted for its content type.
+
+![Value viewer panel showing a formatted JSON value](/docs/screenshots/value-viewer.png)
+
+## Auto-detected content types
+
+The value viewer inspects the cell content and renders it accordingly:
+
+### JSON
+
+If the value parses as valid JSON, it is displayed as a collapsible tree:
+
+- Objects and arrays are collapsed by default
+- Click the expand arrow to open a node
+- Keys are colored differently from values
+- Primitive values (strings, numbers, booleans, null) are shown with type-appropriate colors
+
+### Binary / bytea
+
+Binary columns (PostgreSQL `bytea`, MySQL `BLOB`, etc.) are shown as a hex dump:
+
+```
+Offset   00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F   ASCII
+000000   89 50 4E 47 0D 0A 1A 0A 00 00 00 0D 49 48 44 52   .PNG........IHDR
+000010   00 00 00 10 00 00 00 10 08 02 00 00 00 90 91 68   ...............h
+```
+
+The offset column helps locate specific byte positions in large binary values.
+
+### Long text
+
+Text values longer than 256 characters are shown with:
+
+- Line numbers in the gutter
+- Word wrap enabled
+- Monospace font for readability
+
+### URLs
+
+If the value starts with `http://` or `https://`, it is rendered as a clickable link that opens in a new tab.
+
+### Dates and timestamps
+
+Shown as two lines:
+1. Formatted date: `January 15, 2024 at 2:30:45 PM UTC`
+2. Raw value: `2024-01-15T14:30:45.000Z`
+
+### Regular values
+
+All other values are shown as plain text in a monospace font with a copy button.
+
+## Keyboard shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| Close the value viewer | <Kbd>Esc</Kbd> |
+| Copy the raw value | <Kbd>⌘</Kbd><Kbd>C</Kbd> |
+
+## Copy button
+
+The **Copy** button in the value viewer header copies the complete **raw** value — not the formatted display. For a JSON value, this means the raw JSON string (not the tree rendering). For a timestamp, this means the raw database value.
+
+## Why the value viewer exists
+
+The grid truncates values for two reasons:
+
+1. **Performance** — rendering thousands of long strings in the DOM is slow
+2. **Layout** — very long values would make rows unreadably tall or overflow columns
+
+The value viewer solves both: cells stay compact in the grid, and full values are one click away. No additional database query is made — the viewer reads the value already in memory from the query result.

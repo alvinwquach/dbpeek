@@ -1,0 +1,65 @@
+---
+title: "FAQ"
+description: "Frequently asked questions about dbpeek's features, privacy model, and design decisions."
+category: "Reference"
+---
+
+# FAQ
+
+### Is dbpeek free?
+
+Yes. dbpeek is MIT licensed. Free forever. There is no "pro" tier, no feature gating behind a paywall, and no sign-up required. Run it with `npx` and you're done.
+
+### What operating systems does dbpeek support?
+
+macOS, Linux, and Windows (including WSL2). Anywhere Node.js 18 or later runs.
+
+### Can I use dbpeek with a Docker database?
+
+Yes. Connect to any host reachable from your machine. If the Docker container has a published port, use the forwarded port:
+
+```bash
+npx dbpeek postgres://localhost:5432/mydb
+```
+
+If the container isn't port-forwarded, use the container's internal IP (find it with `docker inspect <container_name>`).
+
+### Where are my credentials stored?
+
+**Nowhere.** The connection string is passed as a CLI argument, parsed into a `ConnectionConfig` object in Node.js process memory, and cleared when the process exits. dbpeek writes no files during normal operation. There is no `~/.dbpeek/` directory, no SQLite session cache, no Keychain entry, and no environment variable written to disk. See the [Privacy model](/advanced/privacy-model) page for a detailed explanation and verification steps.
+
+### How is dbpeek different from psql?
+
+`psql` is a terminal client: text-only output, PostgreSQL-only, requires learning backslash commands. dbpeek gives you a visual schema tree, EXPLAIN visualizations, a multi-tab editor with syntax highlighting, one-click CSV/JSON export, chart visualization, and the same UI across all four supported SQL dialects.
+
+That said, `psql` has scripting superpowers dbpeek will never match — variable interpolation, `\copy`, conditional execution with `\if`, and the ability to pipe SQL scripts from the shell. They complement each other rather than replace each other.
+
+### Can a non-developer use dbpeek?
+
+If they can open a terminal and paste a command, yes. The UI after launch is entirely visual and doesn't require knowledge of SQL syntax to browse tables, view data, or export results.
+
+### Will you add MongoDB / Redis / Cassandra support?
+
+No. dbpeek is explicitly SQL-only by design. Supporting NoSQL databases would require a fundamentally different query model, schema representation, and permission system — it would become a different product. See [Supported databases](/reference/supported-databases) for the full rationale.
+
+### Will you add AI / natural language to SQL?
+
+No. Any NL-to-SQL feature would need to send your query text — and likely your schema — to a third-party API. This breaks dbpeek's core design principle: **no data leaves localhost**. The privacy model is not negotiable.
+
+### Can I run dbpeek as a persistent server for my team?
+
+dbpeek is designed as a single-user CLI tool, not a persistent shared server. For a shared team SQL client, consider [TablePlus](https://tableplus.com/) (server mode), [Metabase](https://www.metabase.com/), or [Redash](https://redash.io/). For a self-hosted option with user management, Metabase Community Edition is free.
+
+### How does dbpeek handle large result sets?
+
+Results are paginated in the UI. By default, dbpeek fetches up to 1,000 rows and displays them in the grid with virtual scrolling. To get more rows, add a LIMIT clause or use the export feature (which streams all rows to a file without loading them all into the browser at once).
+
+### How do I report a bug or request a feature?
+
+Open an issue at [github.com/alvinwquach/dbpeek/issues](https://github.com/alvinwquach/dbpeek/issues). Include:
+
+- The error message or unexpected behavior
+- Your Node.js version (`node --version`)
+- Your operating system and version
+- The dbpeek version (`npx dbpeek --version`)
+- The database dialect you were connecting to (no credentials needed)
