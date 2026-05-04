@@ -23,8 +23,8 @@
     "dev": "tsup --watch",
     "build": "tsup",
     "build:client": "vite build",
-    "build:site": "cd site && pnpm install && pnpm build",
-    "build:docs": "cd docs && pnpm install && pnpm build",
+    "build:site": "cd site && npm ci && npm run build",
+    "build:docs": "cd docs && npm ci && npm run build",
     "build:web": "pnpm build:site && pnpm build:docs && node scripts/merge-web-builds.mjs",
     "build:all": "pnpm build && pnpm build:web",
     "prepack": "pnpm build",
@@ -110,7 +110,6 @@
     "zero-install",
     "npx"
   ],
-  "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=18.0.0"
   }
