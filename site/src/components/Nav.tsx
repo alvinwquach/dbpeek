@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
+import { gsap } from 'gsap'
+import { ScrollSmoother } from 'gsap/ScrollSmoother'
 
 const NAV_LINKS = [
   { label: 'Features', href: '#features' },
@@ -14,12 +16,23 @@ export function Nav() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => {
+    gsap.registerPlugin(ScrollSmoother)
     const onScroll = () => setScrolled(window.scrollY > 20)
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
-  const handleLinkClick = () => setMobileOpen(false)
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    setMobileOpen(false)
+    if (!href.startsWith('#')) return
+    e.preventDefault()
+    const smoother = ScrollSmoother.get()
+    if (smoother) {
+      smoother.scrollTo(href, true)
+    } else {
+      document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }
 
   return (
     <header
@@ -46,6 +59,7 @@ export function Nav() {
             <a
               key={link.href}
               href={link.href}
+              onClick={(e: React.MouseEvent<HTMLAnchorElement>) => handleLinkClick(e, link.href)}
               className="text-[13px] text-[#8a8a9a] hover:text-[#ededf0] transition-colors font-medium"
             >
               {link.label}
@@ -94,7 +108,7 @@ export function Nav() {
             <a
               key={link.href}
               href={link.href}
-              onClick={handleLinkClick}
+              onClick={(e: React.MouseEvent<HTMLAnchorElement>) => handleLinkClick(e, link.href)}
               className="py-2.5 text-[15px] text-[#8a8a9a] hover:text-[#ededf0] transition-colors font-medium"
             >
               {link.label}
@@ -104,7 +118,7 @@ export function Nav() {
             href="https://github.com/alvinwquach/dbpeek"
             target="_blank"
             rel="noopener noreferrer"
-            onClick={handleLinkClick}
+            onClick={() => setMobileOpen(false)}
             className="mt-2 py-2.5 text-[15px] text-[#555566] hover:text-[#8a8a9a] transition-colors"
           >
             GitHub →
