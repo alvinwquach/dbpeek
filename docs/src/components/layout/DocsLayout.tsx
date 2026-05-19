@@ -94,13 +94,14 @@ export function DocsLayout({ children }: DocsLayoutProps) {
         </aside>
 
         {/* ── Main content ───────────────────────────────────────────────
+            pt-16: compensate for the fixed top navbar.
             lg:pl-[256px]: compensate for the fixed left sidebar.
             xl:pr-[224px]: compensate for the fixed right TOC.
             Without these, content would render beneath the fixed panels.
             data-content="true": lets extractHeadings() scope its DOM
               query to this area only, keeping sidebar text out of TOC.  */}
         <main
-          className="lg:pl-[256px] xl:pr-[224px]"
+          className="pt-16 lg:pl-[256px] xl:pr-[224px]"
           data-content="true"
         >
           {/*

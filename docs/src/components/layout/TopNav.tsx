@@ -20,7 +20,7 @@ export function TopNav({ onOpenSearch, onMobileMenuOpen }: TopNavProps) {
   return (
     <header
       className="
-        sticky top-0 z-40
+        fixed top-0 left-0 right-0 z-40
         h-16 w-full
         border-b border-[#e4e4e7] dark:border-[#1e1e2e]
         bg-white/95 dark:bg-[#0a0a0f]/95
